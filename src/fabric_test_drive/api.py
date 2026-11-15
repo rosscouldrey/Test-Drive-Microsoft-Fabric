@@ -5,6 +5,7 @@ import math
 import subprocess
 import time
 from urllib.parse import urljoin, urlsplit
+from uuid import UUID
 
 import requests
 
@@ -130,58 +131,60 @@ class Fabric:
             path = data.get("continuationUri")
         return values
 
+    def operation_urls(self, response, label):
+        # Location can name a regional host; the documented operation ID keeps the token on the Fabric API.
+        operation = response.headers.get("x-ms-operation-id")
+        if operation:
+            try:
+                operation = str(UUID(operation))
+            except ValueError as exc:
+                raise DeploymentError(
+                    f"{label} returned an invalid operation ID. It may have completed; "
+                    "inspect Fabric before retrying."
+                ) from exc
+            return f"operations/{operation}", f"operations/{operation}/result"
+        location = response.headers.get("Location")
+        if not location:
+            raise DeploymentError(f"{label} has no polling URL. Inspect Fabric before retrying.")
+        try:
+            location = self.url(location)
+        except DeploymentError as exc:
+            raise DeploymentError(
+                f"{label} returned an untrusted polling URL and no operation ID. "
+                "It may have completed; inspect Fabric before retrying."
+            ) from exc
+        return location, location.rstrip("/") + "/result"
+
+    def wait_operation(self, response, label, result=False):
+        state, outcome = self.operation_urls(response, label)
+        deadline = time.monotonic() + self.timeout
+        while True:
+            self.pause(response, deadline=deadline)
+            response = self.request("GET", state)
+            status = response.json()["status"]
+            if status == "Succeeded":
+                return self.request("GET", outcome).json() if result else None
+            if status in ("Failed", "Cancelled"):
+                raise DeploymentError(f"{label} {status}: {response.text[:1000]}")
+
     def create(self, path, body):
         response = self.request("POST", path, body)
         if response.status_code != 202:
             return response.json()
-        location = response.headers.get("Location")
-        if not location:
-            raise DeploymentError("Fabric accepted the operation without a polling URL.")
-        deadline = time.monotonic() + self.timeout
-        while True:
-            self.pause(response, deadline=deadline)
-            response = self.request("GET", location)
-            status = response.json()["status"]
-            if status == "Succeeded":
-                return self.request("GET", location.rstrip("/") + "/result").json()
-            if status in ("Failed", "Cancelled"):
-                raise DeploymentError(f"Fabric operation {status}: {response.text[:1000]}")
+        return self.wait_operation(response, "Fabric operation", result=True)
 
     def update_definition(self, workspace, item, definition):
         response = self.request(
             "POST", f"workspaces/{workspace}/items/{item}/updateDefinition",
             {"definition": definition},
         )
-        if response.status_code != 202:
-            return
-        location = response.headers.get("Location")
-        if not location:
-            raise DeploymentError("Definition update has no polling URL. Inspect Fabric before retrying.")
-        deadline = time.monotonic() + self.timeout
-        while True:
-            self.pause(response, deadline=deadline)
-            response = self.request("GET", location)
-            status = response.json()["status"]
-            if status == "Succeeded":
-                return
-            if status in ("Failed", "Cancelled"):
-                raise DeploymentError(f"Definition update {status}: {response.text[:1000]}")
+        if response.status_code == 202:
+            self.wait_operation(response, "Definition update")
 
     def delete(self, path):
         response = self.request("DELETE", path)
         if response.status_code == 202:
-            location = response.headers.get("Location")
-            if not location:
-                raise DeploymentError("Deletion has no polling URL. Inspect Fabric before retrying.")
-            deadline = time.monotonic() + self.timeout
-            while True:
-                self.pause(response, deadline=deadline)
-                response = self.request("GET", location)
-                status = response.json()["status"]
-                if status == "Succeeded":
-                    break
-                if status in ("Failed", "Cancelled"):
-                    raise DeploymentError(f"Deletion {status}: {response.text[:1000]}")
+            self.wait_operation(response, "Deletion")
 
     def run(self, workspace, item, job_type, on_started):
         response = self.request(

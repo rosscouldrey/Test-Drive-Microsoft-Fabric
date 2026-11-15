@@ -132,6 +132,41 @@ class ApiTests(unittest.TestCase):
             self.api.create("workspaces", {})
 
     @patch("fabric_test_drive.api.time.sleep")
+    def test_create_polls_fabric_api_by_operation_id_despite_regional_location(self, sleep):
+        operation = "88888888-8888-8888-8888-888888888888"
+        self.api.session.request.side_effect = [
+            response(status=202, headers={
+                "Location": f"https://wabi-west-us-redirect.analysis.windows.net/v1/operations/{operation}",
+                "x-ms-operation-id": operation,
+            }),
+            response({"status": "Running"}),
+            response({"status": "Succeeded"}),
+            response({"id": NOTEBOOK}),
+        ]
+        self.assertEqual(self.api.create("items", {}), {"id": NOTEBOOK})
+        polled = [call.args[1] for call in self.api.session.request.call_args_list[1:]]
+        base = "https://api.fabric.microsoft.com/v1/operations/"
+        self.assertEqual(polled, [
+            base + operation, base + operation, base + operation + "/result",
+        ])
+
+    def test_untrusted_location_without_operation_id_is_not_followed(self):
+        self.api.session.request.return_value = response(status=202, headers={
+            "Location": "https://example.com/v1/operations/operation",
+        })
+        with self.assertRaisesRegex(DeploymentError, "untrusted polling URL"):
+            self.api.create("items", {})
+        self.api.session.request.assert_called_once()
+
+    def test_invalid_operation_id_is_not_used_to_build_a_url(self):
+        self.api.session.request.return_value = response(status=202, headers={
+            "Location": "operations/operation", "x-ms-operation-id": "../workspaces",
+        })
+        with self.assertRaisesRegex(DeploymentError, "invalid operation ID"):
+            self.api.create("items", {})
+        self.api.session.request.assert_called_once()
+
+    @patch("fabric_test_drive.api.time.sleep")
     def test_job_location_is_recorded_before_polling_failure(self, sleep):
         location = "https://api.fabric.microsoft.com/v1/workspaces/ws/items/item/jobs/instances/job"
         self.api.session.request.side_effect = [
