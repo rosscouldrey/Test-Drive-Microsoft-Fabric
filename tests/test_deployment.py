@@ -198,6 +198,47 @@ class ArtifactTests(unittest.TestCase):
         with self.assertRaisesRegex(DeploymentError, "feasibility blocker"):
             cli.connection_body(types, "Northwind-test")
 
+    def test_connection_accepts_advertised_encryption_without_changing_https_source(self):
+        for advertised, expected in (
+            (["NotEncrypted"], "NotEncrypted"),
+            (["Encrypted"], "Encrypted"),
+            (["NotEncrypted", "Encrypted"], "Encrypted"),
+        ):
+            with self.subTest(advertised=advertised):
+                types = json.loads(json.dumps(CONNECTION_TYPES))
+                types[0]["supportedConnectionEncryptionTypes"] = advertised
+                result = cli.connection_body(types, "Northwind-test")
+                self.assertEqual(
+                    result["credentialDetails"]["connectionEncryption"], expected
+                )
+                self.assertEqual(
+                    result["connectionDetails"]["parameters"][0]["value"],
+                    "https://services.odata.org/V4/Northwind/Northwind.svc/",
+                )
+                self.assertEqual(
+                    result["credentialDetails"]["credentials"],
+                    {"credentialType": "Anonymous"},
+                )
+
+    def test_connection_rejects_unknown_encryption_or_nonanonymous_authentication(self):
+        for field, value in (
+            ("supportedConnectionEncryptionTypes", []),
+            ("supportedConnectionEncryptionTypes", ["Unknown"]),
+            ("supportedCredentialTypes", ["Basic"]),
+        ):
+            with self.subTest(field=field, value=value):
+                types = json.loads(json.dumps(CONNECTION_TYPES))
+                types[0][field] = value
+                with self.assertRaisesRegex(DeploymentError, "feasibility blocker"):
+                    cli.connection_body(types, "Northwind-test")
+
+    def test_connection_refuses_http_even_when_notencrypted_is_advertised(self):
+        types = json.loads(json.dumps(CONNECTION_TYPES))
+        types[0]["supportedConnectionEncryptionTypes"] = ["NotEncrypted"]
+        with patch.object(cli, "SOURCE", SOURCE.replace("https:", "http:")):
+            with self.assertRaisesRegex(DeploymentError, "must use HTTPS"):
+                cli.connection_body(types, "Northwind-test")
+
 
 class DeploymentTests(unittest.TestCase):
     def setUp(self):

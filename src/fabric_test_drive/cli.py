@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 import requests
@@ -48,11 +49,18 @@ def choose(capacities):
 
 
 def connection_body(types, name):
+    if urlsplit(SOURCE).scheme != "https":
+        raise DeploymentError("The Northwind OData source must use HTTPS.")
     candidates = [t for t in types if t["type"].casefold() == "odata"]
     for candidate in candidates:
         if "Anonymous" not in candidate["supportedCredentialTypes"]:
             continue
-        if "Encrypted" not in candidate["supportedConnectionEncryptionTypes"]:
+        encryption = next(
+            (value for value in ("Encrypted", "NotEncrypted")
+             if value in candidate["supportedConnectionEncryptionTypes"]),
+            None,
+        )
+        if encryption is None:
             continue
         for method in candidate["creationMethods"]:
             parameters = method["parameters"]
@@ -75,13 +83,13 @@ def connection_body(types, name):
                 "privacyLevel": "Public",
                 "credentialDetails": {
                     "singleSignOnType": "None",
-                    "connectionEncryption": "Encrypted",
+                    "connectionEncryption": encryption,
                     "skipTestConnection": False,
                     "credentials": {"credentialType": "Anonymous"},
                 },
             }
     raise DeploymentError(
-        "The connection API did not advertise a supported anonymous, encrypted OData "
+        "The connection API did not advertise a supported anonymous OData "
         "URL creation method. This is a feasibility blocker; no REST/Python ingestion "
         "fallback will be substituted."
     )

@@ -66,6 +66,12 @@ Preflight checks happen before the first Fabric write. It checks API access,
 the advertised OData connection creation contract, and a sample Northwind read;
 it cannot prove workspace creation rights or actual connector execution.
 
+The connection request uses the encryption setting advertised by the connector:
+`Encrypted` when available, otherwise `NotEncrypted` if supported. The OData
+connector can advertise only `NotEncrypted`; that API setting does not change
+the configured source URL. Northwind remains anonymous and uses a fixed HTTPS
+URL, and the launcher refuses an HTTP source.
+
 To run the read-only checks separately:
 
 ```bash
