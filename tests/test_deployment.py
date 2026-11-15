@@ -44,6 +44,28 @@ class ApiTests(unittest.TestCase):
         self.api.token = Mock(return_value="test-token")
         self.api.session.request = Mock()
 
+    @patch("fabric_test_drive.api.time.sleep")
+    def test_definition_update_polls_until_succeeded_without_requesting_a_result(self, sleep):
+        self.api.session.request.side_effect = [
+            response(status=202, headers={"Location": "operations/update"}),
+            response({"status": "Running"}),
+            response({"status": "Succeeded"}),
+        ]
+        self.api.update_definition(WORKSPACE, PIPELINE, {"parts": []})
+        self.assertEqual(self.api.session.request.call_count, 3)
+        first = self.api.session.request.call_args_list[0]
+        self.assertTrue(first.args[1].endswith(f"/items/{PIPELINE}/updateDefinition"))
+        self.assertEqual(first.kwargs["json"], {"definition": {"parts": []}})
+
+    @patch("fabric_test_drive.api.time.sleep")
+    def test_failed_definition_update_is_reported(self, sleep):
+        self.api.session.request.side_effect = [
+            response(status=202, headers={"Location": "operations/update"}),
+            response({"status": "Failed"}),
+        ]
+        with self.assertRaisesRegex(DeploymentError, "Definition update Failed"):
+            self.api.update_definition(WORKSPACE, PIPELINE, {"parts": []})
+
     def test_pagination_cannot_forward_token_to_another_host(self):
         self.api.session.request.return_value = response({
             "value": [], "continuationUri": "https://example.com/v1/workspaces",
@@ -151,6 +173,22 @@ class ApiTests(unittest.TestCase):
 
 
 class ArtifactTests(unittest.TestCase):
+    def test_binary_fields_are_excluded_by_odata_projection(self):
+        content = pipeline(WORKSPACE, LAKEHOUSE, CONNECTION)
+        decoded = json.loads(base64.b64decode(content["parts"][0]["payload"]))
+        sources = {
+            activity["name"]: activity["typeProperties"]["source"]
+            for activity in decoded["properties"]["activities"]
+        }
+        category_fields = sources["Copy_categories"]["query"].removeprefix("$select=").split(",")
+        self.assertEqual(category_fields, ["CategoryID", "CategoryName", "Description"])
+        employee_fields = sources["Copy_employees"]["query"].removeprefix("$select=").split(",")
+        self.assertNotIn("Photo", employee_fields)
+        self.assertIn("EmployeeID", employee_fields)
+        self.assertIn("ReportsTo", employee_fields)
+        self.assertIn("PhotoPath", employee_fields)
+        self.assertNotIn("query", sources["Copy_order_details"])
+
     def test_pipeline_binds_every_source_and_destination_to_this_deployment(self):
         content = pipeline(WORKSPACE, LAKEHOUSE, CONNECTION)
         decoded = json.loads(base64.b64decode(content["parts"][0]["payload"]))
@@ -257,6 +295,48 @@ class DeploymentTests(unittest.TestCase):
             "connection_name": "Northwind-test", "completed": [], "jobs": {},
             "verified": False,
         }
+
+    def test_failed_ingestion_updates_definition_before_retry_without_recreating(self):
+        state = self.state()
+        state["jobs"]["ingestion"] = "https://api.fabric.microsoft.com/v1/jobs/failed"
+        api = Mock()
+        api.request.return_value = response({"status": "Failed"})
+        definition = pipeline(WORKSPACE, LAKEHOUSE, CONNECTION)
+        api.run.side_effect = lambda ws, item, kind, started: started(
+            "https://api.fabric.microsoft.com/v1/jobs/retry"
+        )
+        cli.run_stage(api, state, "ingestion", PIPELINE, "Pipeline", definition)
+        api.update_definition.assert_called_once_with(WORKSPACE, PIPELINE, definition)
+        api.create.assert_not_called()
+        methods = [call[0] for call in api.mock_calls]
+        self.assertLess(methods.index("update_definition"), methods.index("run"))
+        self.assertEqual(state["completed"], ["ingestion"])
+
+    def test_active_or_completed_ingestion_does_not_update_definition_or_start_again(self):
+        for completed in (False, True):
+            with self.subTest(completed=completed):
+                state = self.state()
+                state["jobs"]["ingestion"] = "https://api.fabric.microsoft.com/v1/jobs/current"
+                if completed:
+                    state["completed"].append("ingestion")
+                api = Mock()
+                api.request.return_value = response({"status": "InProgress"})
+                cli.run_stage(
+                    api, state, "ingestion", PIPELINE, "Pipeline",
+                    pipeline(WORKSPACE, LAKEHOUSE, CONNECTION),
+                )
+                api.update_definition.assert_not_called()
+                api.run.assert_not_called()
+                self.assertEqual(api.wait_job.call_count, 0 if completed else 1)
+
+    def test_definition_update_failure_prevents_job_submission(self):
+        api = Mock()
+        api.update_definition.side_effect = DeploymentError("update failed")
+        state = self.state()
+        with self.assertRaisesRegex(DeploymentError, "update failed"):
+            cli.run_stage(api, state, "ingestion", PIPELINE, "Pipeline", {"parts": []})
+        api.run.assert_not_called()
+        self.assertNotIn("pending_job", state)
 
     def test_resume_reuses_objects_and_completed_ingestion_after_notebook_failure(self):
         api = Mock()

@@ -153,7 +153,7 @@ def ensure_item(api, state, key, kind, name, content=None):
     return item_id
 
 
-def run_stage(api, state, name, item, job_type):
+def run_stage(api, state, name, item, job_type, definition=None):
     if name in state["completed"]:
         print(f"Reusing completed stage: {name}")
         return
@@ -167,6 +167,9 @@ def run_stage(api, state, name, item, job_type):
         print(f"Resuming {name}: {location}")
         api.wait_job(location)
     else:
+        if definition is not None:
+            api.update_definition(state["workspace_id"], item, definition)
+            print(f"Updated {name} definition before starting a new run.")
         state["pending_job"] = name
         save(state)
 
@@ -228,15 +231,20 @@ def deploy(api, state, tenant, capacity, name, types):
         connection = api.request("GET", f"connections/{state['connection_id']}").json()
         if connection["displayName"] != state["connection_name"]:
             raise DeploymentError("Recorded OData connection was renamed; refusing to reuse it.")
+    existing_pipeline = "pipeline_id" in state
+    ingestion_definition = pipeline(workspace, lakehouse, state["connection_id"])
     ingestion = ensure_item(
         api, state, "pipeline_id", "DataPipeline", "Ingest Northwind",
-        pipeline(workspace, lakehouse, state["connection_id"]),
+        ingestion_definition,
     )
     verification = ensure_item(
         api, state, "notebook_id", "Notebook", "Verify Northwind",
         notebook(workspace, lakehouse),
     )
-    run_stage(api, state, "ingestion", ingestion, "Pipeline")
+    run_stage(
+        api, state, "ingestion", ingestion, "Pipeline",
+        definition=ingestion_definition if existing_pipeline else None,
+    )
     run_stage(api, state, "verification", verification, "RunNotebook")
     state["verified"] = True
     save(state)

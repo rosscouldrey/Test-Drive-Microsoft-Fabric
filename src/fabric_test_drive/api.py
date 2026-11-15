@@ -147,6 +147,26 @@ class Fabric:
             if status in ("Failed", "Cancelled"):
                 raise DeploymentError(f"Fabric operation {status}: {response.text[:1000]}")
 
+    def update_definition(self, workspace, item, definition):
+        response = self.request(
+            "POST", f"workspaces/{workspace}/items/{item}/updateDefinition",
+            {"definition": definition},
+        )
+        if response.status_code != 202:
+            return
+        location = response.headers.get("Location")
+        if not location:
+            raise DeploymentError("Definition update has no polling URL. Inspect Fabric before retrying.")
+        deadline = time.monotonic() + self.timeout
+        while True:
+            self.pause(response, deadline=deadline)
+            response = self.request("GET", location)
+            status = response.json()["status"]
+            if status == "Succeeded":
+                return
+            if status in ("Failed", "Cancelled"):
+                raise DeploymentError(f"Definition update {status}: {response.text[:1000]}")
+
     def delete(self, path):
         response = self.request("DELETE", path)
         if response.status_code == 202:

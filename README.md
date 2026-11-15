@@ -23,6 +23,9 @@ not evidence of successful tenant deployment.
 
 Source entities: Customers, Orders, Order_Details, Products, Categories,
 Employees, Suppliers, and Shippers.
+OData `$select` projections exclude the binary `Categories.Picture` and
+`Employees.Photo` fields, which are unsupported by this Copy path. Other scalar
+fields are retained; source images are not part of this demo.
 
 **Not implemented:** dimension tables, semantic model, Power BI report, hosted
 web wizard, capacity creation, and unattended GitHub Actions deployment.
@@ -101,8 +104,11 @@ and job URLs are saved in the gitignored `.fabric-test-drive/state.json`.
 Already-recorded items are reused, pending jobs are polled, and failed jobs can
 be retried on the next invocation. A fully successful deployment is rerunnable:
 the next run overwrites the eight source tables and `fact_sales`.
-Existing item definitions are reused, not upgraded. Use a new deployment
-directory/workspace to test changed definitions.
+Before starting a new run of an existing ingestion pipeline, the launcher updates
+its definition from the checked-out code. Active runs are polled without changing
+their definition, and completed stages in an interrupted deployment are reused.
+Other existing item definitions are reused, not upgraded. Use a new deployment
+directory/workspace to test changes to those definitions.
 
 **Keep this state file until cleanup is complete.** Closing a Codespace does
 not delete Fabric objects; deleting the Codespace can lose cleanup state.

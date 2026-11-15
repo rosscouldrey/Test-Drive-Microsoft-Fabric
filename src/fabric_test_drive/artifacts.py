@@ -12,6 +12,14 @@ ENTITIES = {
     "Suppliers": "suppliers",
     "Shippers": "shippers",
 }
+PROJECTIONS = {
+    "Categories": ("CategoryID", "CategoryName", "Description"),
+    "Employees": (
+        "EmployeeID", "LastName", "FirstName", "Title", "TitleOfCourtesy",
+        "BirthDate", "HireDate", "Address", "City", "Region", "PostalCode",
+        "Country", "HomePhone", "Extension", "Notes", "ReportsTo", "PhotoPath",
+    ),
+}
 
 
 def definition(path, content):
@@ -37,6 +45,8 @@ def pipeline(workspace, lakehouse, connection):
                 "source": {
                     "type": "ODataSource",
                     "httpRequestTimeout": "00:05:00",
+                    **({"query": "$select=" + ",".join(PROJECTIONS[entity])}
+                       if entity in PROJECTIONS else {}),
                     "datasetSettings": {
                         "annotations": [], "type": "ODataResource", "schema": [],
                         "typeProperties": {"path": entity},
