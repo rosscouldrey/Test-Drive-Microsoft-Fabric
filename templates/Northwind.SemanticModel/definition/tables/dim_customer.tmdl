@@ -1,0 +1,47 @@
+table dim_customer
+	lineageTag: 4fdddfce-da34-451c-ab26-3c42f24c0e32
+	sourceLineageTag: [gold].[dim_customer]
+
+	column customer_id
+		dataType: string
+		lineageTag: 8e346029-e20d-40de-a961-2bae30c07c4e
+		sourceLineageTag: customer_id
+		summarizeBy: none
+		sourceColumn: customer_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column company_name
+		dataType: string
+		lineageTag: 86a72323-2106-4199-9339-912edc601dc5
+		sourceLineageTag: company_name
+		summarizeBy: none
+		sourceColumn: company_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column city
+		dataType: string
+		lineageTag: 5377a26f-e40f-4ba4-9190-87fd85914ccf
+		sourceLineageTag: city
+		summarizeBy: none
+		sourceColumn: city
+
+		annotation SummarizationSetBy = Automatic
+
+	column country
+		dataType: string
+		lineageTag: b9a269d5-fd34-4d0b-9add-d7e8fdb55de2
+		sourceLineageTag: country
+		summarizeBy: none
+		sourceColumn: country
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_customer = entity
+		mode: directLake
+		source
+			entityName: dim_customer
+			schemaName: gold
+			expressionSource: 'DirectLake - Northwind'
+

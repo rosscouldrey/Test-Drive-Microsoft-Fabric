@@ -1,0 +1,20 @@
+relationship 0ec97775-483f-66f8-f257-55dcec071abc
+	relyOnReferentialIntegrity
+	fromColumn: fact_sales.employee_id
+	toColumn: dim_employee.employee_id
+
+relationship 88e1dd6a-d807-2613-e267-e708ac389d0a
+	relyOnReferentialIntegrity
+	fromColumn: fact_sales.customer_id
+	toColumn: dim_customer.customer_id
+
+relationship 9902f180-0964-ed75-137b-80092485d3f1
+	relyOnReferentialIntegrity
+	fromColumn: fact_sales.order_date
+	toColumn: dim_date.date
+
+relationship 855c3233-f48b-016a-e2c8-af66819e4303
+	relyOnReferentialIntegrity
+	fromColumn: fact_sales.product_id
+	toColumn: dim_product.product_id
+

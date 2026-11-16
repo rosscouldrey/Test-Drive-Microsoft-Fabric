@@ -1,0 +1,48 @@
+table dim_product
+	lineageTag: ed3a4590-12dd-49af-a28a-c5c602f4ad8e
+	sourceLineageTag: [gold].[dim_product]
+
+	column product_id
+		dataType: int64
+		formatString: 0
+		lineageTag: c270ffdb-7c93-4daa-950d-21256024ba10
+		sourceLineageTag: product_id
+		summarizeBy: none
+		sourceColumn: product_id
+
+		annotation SummarizationSetBy = Automatic
+
+	column product_name
+		dataType: string
+		lineageTag: a3398db7-8d25-4d1c-be89-b6239a47d962
+		sourceLineageTag: product_name
+		summarizeBy: none
+		sourceColumn: product_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column category_name
+		dataType: string
+		lineageTag: 23f88fbe-c504-4474-b932-9cf02298c23f
+		sourceLineageTag: category_name
+		summarizeBy: none
+		sourceColumn: category_name
+
+		annotation SummarizationSetBy = Automatic
+
+	column supplier_name
+		dataType: string
+		lineageTag: c169fbbc-ac58-472e-b158-8f0192b4dede
+		sourceLineageTag: supplier_name
+		summarizeBy: none
+		sourceColumn: supplier_name
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_product = entity
+		mode: directLake
+		source
+			entityName: dim_product
+			schemaName: gold
+			expressionSource: 'DirectLake - Northwind'
+

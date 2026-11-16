@@ -1,0 +1,92 @@
+/// Container table for explicit measures. Underlying data is not used in visuals.
+table _measures
+	lineageTag: 649c98b0-1828-47e4-801b-2ac5c05c196a
+
+	/// Total sales amount summed over all sales transactions.
+	measure 'Total Sales' = SUM('fact_sales'[sales_amount])
+		formatString: #,0.00
+		displayFolder: Core
+		lineageTag: 81084c97-e0d2-43cd-bc41-7bfe423fe6f6
+
+	/// Total quantity of items sold.
+	measure 'Total Quantity' = SUM('fact_sales'[quantity])
+		formatString: #,0
+		displayFolder: Core
+		lineageTag: 1fee27fb-f196-4c43-b3e8-c06edf7a9e5d
+
+	/// Number of distinct sales orders.
+	measure 'Order Count' = DISTINCTCOUNT('fact_sales'[order_id])
+		formatString: #,0
+		displayFolder: Core
+		lineageTag: 5e787f20-18cf-441e-923d-493a19c859f4
+
+	/// Number of distinct customers with sales.
+	measure 'Customer Count' = DISTINCTCOUNT('fact_sales'[customer_id])
+		formatString: #,0
+		displayFolder: Core
+		lineageTag: 5f73bfe5-f634-459d-bf9a-03e766629ad2
+
+	/// Number of distinct products sold.
+	measure 'Product Count' = DISTINCTCOUNT('fact_sales'[product_id])
+		formatString: #,0
+		displayFolder: Core
+		lineageTag: 52ac6a65-8ddb-43cf-911c-a4eb066b97af
+
+	/// Average discount percentage across sales transactions.
+	measure 'Average Discount %' = AVERAGE('fact_sales'[discount])
+		formatString: 0.0%
+		displayFolder: Averages
+		lineageTag: b31ffce6-3eb7-44fb-a053-b783b0eb4256
+
+	/// Average unit selling price across sales transactions.
+	measure 'Average Unit Price' = AVERAGE('fact_sales'[unit_price])
+		formatString: #,0.00
+		displayFolder: Averages
+		lineageTag: aa608ef9-7afd-4b22-9b9b-217be172218e
+
+	/// Average sales amount per order.
+	measure 'Sales per Order' = DIVIDE([Total Sales],[Order Count])
+		formatString: #,0.00
+		displayFolder: Averages
+		lineageTag: a285f37a-1da9-4c75-9baf-b39c42f2c755
+
+	/// Average sales amount per unit sold.
+	measure 'Sales per Unit' = DIVIDE([Total Sales],[Total Quantity])
+		formatString: #,0.00
+		displayFolder: Averages
+		lineageTag: f27e9747-bfe6-4ee7-a430-77ea46f84d44
+
+	/// Year-to-date total sales based on dim_date[date].
+	measure 'Total Sales YTD' = TOTALYTD([Total Sales], 'dim_date'[date])
+		formatString: #,0.00
+		displayFolder: Time Intelligence
+		lineageTag: 6b8b81b8-42c3-4c18-a5b0-f2a5955ddcde
+
+	/// Total sales for the same period in the previous year based on dim_date[date].
+	measure 'Total Sales PY' = CALCULATE([Total Sales], SAMEPERIODLASTYEAR('dim_date'[date]))
+		formatString: #,0.00
+		displayFolder: Time Intelligence
+		lineageTag: fc996e00-4753-47a4-9d2d-2f946b4322ef
+
+	/// Year-over-year difference in sales (current period minus prior-year period).
+	measure 'Total Sales YoY' = [Total Sales] - [Total Sales PY]
+		formatString: #,0.00
+		displayFolder: Time Intelligence
+		lineageTag: 749ed7d3-abd8-41d9-97be-ca608811e308
+
+	/// Year-over-year percentage change in sales.
+	measure 'Total Sales YoY %' = DIVIDE([Total Sales YoY], [Total Sales PY])
+		formatString: 0.0%
+		displayFolder: Time Intelligence
+		lineageTag: 0e8e9864-61cf-4b30-a859-06c1cfa44244
+
+	column Dummy
+		isHidden
+		lineageTag: 8671eced-26aa-4b91-ba87-7b500f2026c3
+		isNameInferred
+		sourceColumn: [Dummy]
+
+	partition _measures = calculated
+		mode: import
+		source = DATATABLE("Dummy", INTEGER, {{0}})
+
