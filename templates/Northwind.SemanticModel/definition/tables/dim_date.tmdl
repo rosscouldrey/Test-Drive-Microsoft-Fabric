@@ -1,0 +1,70 @@
+table dim_date
+	lineageTag: b1e54199-06d2-4f71-bd2d-506c9242a501
+	sourceLineageTag: [gold].[dim_date]
+	dataCategory: Time
+
+	column date
+		dataType: dateTime
+		isUnique
+		formatString: General Date
+		lineageTag: 7675628d-028f-4105-8963-51caa9ba9bcc
+		sourceLineageTag: date
+		summarizeBy: none
+		sourceColumn: date
+
+		annotation SummarizationSetBy = Automatic
+
+	column year
+		dataType: int64
+		formatString: 0
+		lineageTag: 781c5abf-a8b3-41c3-b53d-c8d93fbe9af2
+		sourceLineageTag: year
+		summarizeBy: none
+		sourceColumn: year
+
+		annotation SummarizationSetBy = Automatic
+
+	column quarter
+		dataType: string
+		lineageTag: dabf4a53-81ae-4eee-8995-4d5903e6bd54
+		sourceLineageTag: quarter
+		summarizeBy: none
+		sourceColumn: quarter
+
+		annotation SummarizationSetBy = Automatic
+
+	column month_number
+		dataType: int64
+		formatString: 0
+		lineageTag: c788f307-1334-4704-a37b-6f94b6526b03
+		sourceLineageTag: month_number
+		summarizeBy: none
+		sourceColumn: month_number
+
+		annotation SummarizationSetBy = Automatic
+
+	column month
+		dataType: string
+		lineageTag: b3decc40-40f4-495e-8603-8ae2d792df10
+		sourceLineageTag: month
+		summarizeBy: none
+		sourceColumn: month
+
+		annotation SummarizationSetBy = Automatic
+
+	column year_month
+		dataType: string
+		lineageTag: d8ac44a6-bb20-4593-80bb-7fdabe11fc6d
+		sourceLineageTag: year_month
+		summarizeBy: none
+		sourceColumn: year_month
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_date = entity
+		mode: directLake
+		source
+			entityName: dim_date
+			schemaName: gold
+			expressionSource: 'DirectLake - Northwind'
+

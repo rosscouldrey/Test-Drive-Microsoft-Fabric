@@ -8,9 +8,8 @@ NYTaxi is a future scenario.
 
 The goal is a browser-launched, populated Fabric workspace with a sales model
 and report. The original data deployment path has passed in a live Fabric tenant.
-The schema-enabled bronze/gold deployment is awaiting tenant verification;
-model and report authoring will be done in Fabric and brought back into this
-repository.
+The schema-enabled bronze/gold and semantic model deployment is awaiting live
+tenant verification. Report authoring is planned separately.
 
 ## What this increment creates
 
@@ -22,6 +21,7 @@ repository.
 | `Initialize Schemas` notebook | Creates the bronze and gold schemas before ingestion |
 | `Ingest Northwind` pipeline | Sequential Copy activities using the OData connector into bronze |
 | `Verify Northwind` PySpark notebook | Checks populated tables, order-detail joins, persisted sales rows, and a sales aggregation |
+| `Northwind Model` semantic model | Exported Direct Lake model rebound to the new lakehouse |
 
 Source entities: Customers, Orders, Order_Details, Products, Categories,
 Employees, Suppliers, and Shippers.
@@ -29,7 +29,7 @@ OData `$select` projections exclude the binary `Categories.Picture` and
 `Employees.Photo` fields, which are unsupported by this Copy path. Other scalar
 fields are retained; source images are not part of this demo.
 
-**Not implemented:** semantic model, Power BI report, hosted
+**Not implemented:** Power BI report, hosted
 web wizard, capacity creation, and unattended GitHub Actions deployment.
 The deployment reports data-stage success only after the pipeline and
 assertion-bearing notebook jobs complete.
@@ -96,7 +96,7 @@ dimension matches, and a positive revenue aggregation.
 The terminal prints the workspace link.
 Notebook execution errors fail the deployment rather than showing success.
 
-### Build your model in Fabric
+### Explore the model in Fabric
 
 Use the `gold` schema's tables in your model. A rerun of a schema-enabled
 deployment consumes capacity and overwrites demo tables.
@@ -116,10 +116,89 @@ and title. The date dimension covers every day from the first to last order.
 Mark it as a date table, sort `month` by `month_number`, and use `year_month` for
 a chronological sales trend.
 
-Suggested measures: `SUM(fact_sales[sales_amount])`,
-`DISTINCTCOUNT(fact_sales[order_id])`, `SUM(fact_sales[quantity])`, and
-average order value (total sales divided by order count). Export or sync the
-authored model/report definitions back to the repository for deployment work.
+The exported model includes sales, order, quantity, and time-intelligence measures.
+
+### Export your manually authored semantic model
+
+From the repository directory, export the model's definition as readable TMDL
+files using your existing Azure CLI sign-in:
+
+```bash
+.venv/bin/python -m fabric_test_drive.export_model --model <semantic-model-uuid>
+```
+
+Find the semantic model UUID in its Fabric URL (the `dataset` ID, not the report
+ID), or list the workspace's semantic models using Fabric's
+`GET /v1/workspaces/{workspaceId}/semanticModels` API.
+Tenant and workspace IDs default to `.fabric-test-drive/state.json`. To export
+from another workspace, or without local deployment state, specify both:
+
+```bash
+.venv/bin/python -m fabric_test_drive.export_model \
+  --tenant <tenant-uuid> --workspace <workspace-uuid> --model <semantic-model-uuid>
+```
+
+The script calls
+`POST /v1/workspaces/{workspaceId}/semanticModels/{semanticModelId}/getDefinition?format=TMDL`,
+waits for asynchronous exports, and decodes each definition part into
+`templates/Northwind.SemanticModel/`. It does not change the model, deploy
+resources, or modify deployment state. If authentication has expired, run
+`az login --tenant <tenant-uuid> --use-device-code --allow-no-subscriptions`
+and retry. The signed-in account needs permission to read the model definition.
+
+Review the exported files for sensitive values and environment-specific data
+source references before committing. Definitions are exported, not table data.
+For example:
+
+```bash
+git switch -c add-northwind-model
+git add templates/Northwind.SemanticModel
+git diff --cached
+git commit -m "Add authored Northwind semantic model"
+git push -u origin add-northwind-model
+```
+
+Existing export directories are never overwritten. For subsequent exports, use
+`--output templates/Northwind.SemanticModel-new`, review it, then replace the old
+directory with the new one (including removing stale definition files).
+The model deployment below uses this exported template. Report
+export and deployment are not implemented.
+
+### Test the exported model in a new deployment
+
+Deployment creates `Northwind Model` after the gold tables pass
+their checks, replacing the template's OneLake workspace and lakehouse IDs with
+the new deployment's IDs. This is experimental and has not been validated in a
+fresh end-to-end live deployment. It also sets the model's target storage mode to
+`PremiumFiles` through the Power BI API. Live troubleshooting confirmed that a
+model created with the default `Abf` storage failed refresh, and enabling large
+storage allowed refresh to succeed. The caller must own the model and have
+permission to update it through the Power BI API.
+The launcher checks creation and the target storage setting, **not** whether measures or queries
+work. Its existing data-verification result is not a semantic model verification.
+
+Use a separate clone or Codespace so the original workspace and its state remain
+untouched. In that new directory, install the package as under Local development
+and run:
+
+```bash
+.venv/bin/fabric-test-drive deploy --skip-login
+```
+
+Select a capacity, enter a **new workspace name**, and type `deploy` to confirm.
+A recorded model is reused, not updated from subsequent template edits. If creation
+succeeds, wait for any large-storage conversion to finish, refresh `Northwind Model`
+in Fabric, check its OneLake connection and authentication, and run a DAX query such as:
+
+```DAX
+EVALUATE ROW("Sales", [Total Sales], "Orders", [Order Count])
+```
+
+Confirm both values are positive, then test dimensions filtering sales and the
+date measures. A successful create alone does not establish that the Direct Lake
+connection, calculated measure table, or query results work; a refresh or
+connection configuration may be needed. Keep the new directory's state for
+resuming or guarded cleanup.
 
 ## Resume and cleanup
 
