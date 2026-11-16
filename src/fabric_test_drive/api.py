@@ -55,6 +55,8 @@ def login(tenant):
 
 
 class Fabric:
+    resource = RESOURCE
+
     def __init__(self, tenant, timeout=1800):
         self.tenant = tenant
         self.timeout = timeout
@@ -77,7 +79,7 @@ class Fabric:
         if time.monotonic() >= self._refresh_at:
             data = json.loads(azure(
                 "account", "get-access-token", "--tenant", self.tenant,
-                "--resource", RESOURCE, "--output", "json",
+                "--resource", self.resource, "--output", "json",
             ))
             self._token = data["accessToken"]
             self._refresh_at = time.monotonic() + 240
@@ -222,3 +224,18 @@ class Fabric:
                 raise DeploymentError(f"Fabric job {status}: {response.text[:1000]}")
             self.pause(response, deadline=deadline)
         raise DeploymentError("Fabric job timed out; its URL is saved in deployment state.")
+
+
+class PowerBI(Fabric):
+    resource = "https://analysis.windows.net/powerbi/api"
+
+    def url(self, path):
+        url = urljoin("https://api.powerbi.com/v1.0/myorg/", path)
+        parts = urlsplit(url)
+        if (
+            parts.scheme != "https"
+            or parts.netloc != "api.powerbi.com"
+            or not parts.path.startswith("/v1.0/myorg/")
+        ):
+            raise DeploymentError("Refusing to send a Power BI token to an unexpected URL.")
+        return url

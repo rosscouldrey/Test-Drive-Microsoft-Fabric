@@ -55,7 +55,7 @@ def export_model(api, workspace, model, destination):
         target.write_bytes(content)
     print(f"Exported {len(files)} semantic model definition files to {destination}.")
     print("Review data-source references and sensitive values before committing.")
-    print("This exports definitions only; automatic model deployment is not implemented.")
+    print("This command exports definitions only; deploy uses the template and rebinds its lakehouse.")
 
 
 def main(argv=None):
