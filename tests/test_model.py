@@ -73,6 +73,31 @@ class ModelReadinessTests(unittest.TestCase):
         posts = [c.args[1] for c in self.api.session.request.call_args_list if c.args[0] == "POST"]
         self.assertEqual(posts, [self.api.url(PATH + "/executeQueries")])
 
+    def test_request_id_polls_powerbi_api_without_following_regional_location(self):
+        self.api.session.request.side_effect = [
+            response(READY),
+            response(status=202, headers={
+                "x-ms-request-id": REFRESH,
+                "Location": "https://regional.example/refreshes/" + REFRESH,
+            }),
+            response({"status": "Completed"}), response(QUERY),
+        ]
+        verify_model(TENANT, self.state, self.save)
+        calls = self.api.session.request.call_args_list
+        self.assertEqual(calls[2].args[1], self.api.url(PATH + "/refreshes/" + REFRESH))
+        self.assertEqual(self.state["model_refresh_id"], REFRESH)
+
+    def test_invalid_request_id_leaves_pending_marker(self):
+        self.api.session.request.side_effect = [
+            response(READY),
+            response(status=202, headers={
+                "x-ms-request-id": "../bad", "Location": self.api.url(PATH + "/refreshes/" + REFRESH),
+            }),
+        ]
+        with self.assertRaisesRegex(DeploymentError, "invalid request ID"):
+            verify_model(TENANT, self.state, self.save)
+        self.assertEqual(self.state["pending_job"], "model_refresh")
+
     def test_terminal_failure_is_explicit_and_next_invocation_can_retry(self):
         self.api.session.request.side_effect = [
             response(READY), accepted(),

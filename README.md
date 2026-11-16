@@ -252,7 +252,9 @@ history, wait for or cancel any run, then remove that entry before retrying.
 Do not delete the state file to work around an unresolved operation.
 Long-running Fabric operations are polled by their `x-ms-operation-id` on
 `api.fabric.microsoft.com`; the access token is never sent to other hosts, even
-when Fabric returns a regional `Location` header.
+when Fabric returns a regional `Location` header. Power BI refreshes are polled
+on `api.powerbi.com` by their `x-ms-request-id` when available, without sending
+the token to a regional `Location` host.
 
 ```bash
 .venv/bin/fabric-test-drive cleanup

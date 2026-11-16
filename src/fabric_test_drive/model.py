@@ -56,14 +56,31 @@ def verify_model(tenant, state, save):
             })
             if response.status_code != 202:
                 raise DeploymentError("Model refresh was not accepted; inspect refresh history.")
-            location = response.headers.get("Location")
-            if not location:
-                raise DeploymentError("Model refresh returned no polling URL; inspect refresh history.")
-            location = api.url(location)
-            parent, refresh = location.rsplit("/", 1)
-            if parent != api.url(path + "/refreshes"):
-                raise DeploymentError("Unexpected model refresh URL; inspect refresh history.")
-            state["model_refresh_id"] = str(UUID(refresh))
+            refresh = response.headers.get("x-ms-request-id")
+            if refresh:
+                try:
+                    refresh = str(UUID(refresh))
+                except ValueError as exc:
+                    raise DeploymentError(
+                        "Model refresh returned an invalid request ID; inspect refresh history."
+                    ) from exc
+            else:
+                location = response.headers.get("Location")
+                if not location:
+                    raise DeploymentError(
+                        "Model refresh returned no request ID or polling URL; inspect refresh history."
+                    )
+                location = api.url(location)
+                parent, refresh = location.rsplit("/", 1)
+                if parent != api.url(path + "/refreshes"):
+                    raise DeploymentError("Unexpected model refresh URL; inspect refresh history.")
+                try:
+                    refresh = str(UUID(refresh))
+                except ValueError as exc:
+                    raise DeploymentError(
+                        "Model refresh returned an invalid polling URL; inspect refresh history."
+                    ) from exc
+            state["model_refresh_id"] = refresh
             del state["pending_job"]
             save(state)
             print(f"Running model refresh: {state['model_refresh_id']} (up to two service retries).")
