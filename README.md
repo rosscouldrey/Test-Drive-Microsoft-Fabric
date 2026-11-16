@@ -8,9 +8,8 @@ NYTaxi is a future scenario.
 
 The goal is a browser-launched, populated Fabric workspace with a sales model
 and report. The original data deployment path has passed in a live Fabric tenant.
-The schema-enabled bronze/gold deployment is awaiting tenant verification;
-model and report authoring will be done in Fabric and brought back into this
-repository.
+The schema-enabled bronze/gold and semantic model deployment is awaiting live
+tenant verification. Report authoring is planned separately.
 
 ## What this increment creates
 
@@ -22,6 +21,7 @@ repository.
 | `Initialize Schemas` notebook | Creates the bronze and gold schemas before ingestion |
 | `Ingest Northwind` pipeline | Sequential Copy activities using the OData connector into bronze |
 | `Verify Northwind` PySpark notebook | Checks populated tables, order-detail joins, persisted sales rows, and a sales aggregation |
+| `Northwind Model` semantic model | Exported Direct Lake model rebound to the new lakehouse |
 
 Source entities: Customers, Orders, Order_Details, Products, Categories,
 Employees, Suppliers, and Shippers.
@@ -29,7 +29,7 @@ OData `$select` projections exclude the binary `Categories.Picture` and
 `Employees.Photo` fields, which are unsupported by this Copy path. Other scalar
 fields are retained; source images are not part of this demo.
 
-**Not implemented:** semantic model, Power BI report, hosted
+**Not implemented:** Power BI report, hosted
 web wizard, capacity creation, and unattended GitHub Actions deployment.
 The deployment reports data-stage success only after the pipeline and
 assertion-bearing notebook jobs complete.
@@ -96,7 +96,7 @@ dimension matches, and a positive revenue aggregation.
 The terminal prints the workspace link.
 Notebook execution errors fail the deployment rather than showing success.
 
-### Build your model in Fabric
+### Explore the model in Fabric
 
 Use the `gold` schema's tables in your model. A rerun of a schema-enabled
 deployment consumes capacity and overwrites demo tables.
@@ -116,10 +116,7 @@ and title. The date dimension covers every day from the first to last order.
 Mark it as a date table, sort `month` by `month_number`, and use `year_month` for
 a chronological sales trend.
 
-Suggested measures: `SUM(fact_sales[sales_amount])`,
-`DISTINCTCOUNT(fact_sales[order_id])`, `SUM(fact_sales[quantity])`, and
-average order value (total sales divided by order count). Export or sync the
-authored model/report definitions back to the repository for deployment work.
+The exported model includes sales, order, quantity, and time-intelligence measures.
 
 ### Export your manually authored semantic model
 
@@ -164,8 +161,39 @@ git push -u origin add-northwind-model
 Existing export directories are never overwritten. For subsequent exports, use
 `--output templates/Northwind.SemanticModel-new`, review it, then replace the old
 directory with the new one (including removing stale definition files).
-This captures the model for source control only: report export, rebinding the
-model to a new lakehouse, and automatic model/report creation are not implemented.
+The model deployment below uses this exported template. Report
+export and deployment are not implemented.
+
+### Test the exported model in a new deployment
+
+Deployment creates `Northwind Model` after the gold tables pass
+their checks, replacing the template's OneLake workspace and lakehouse IDs with
+the new deployment's IDs. This is experimental and has not been validated in a
+live tenant. The launcher checks creation, **not** whether measures or queries
+work. Its existing data-verification result is not a semantic model verification.
+
+Use a separate clone or Codespace so the original workspace and its state remain
+untouched. In that new directory, install the package as under Local development
+and run:
+
+```bash
+.venv/bin/fabric-test-drive deploy --skip-login
+```
+
+Select a capacity, enter a **new workspace name**, and type `deploy` to confirm.
+A recorded model is reused, not updated from subsequent template edits. If creation
+succeeds, open `Northwind Model` in Fabric, check its OneLake connection and
+authentication, and run a DAX query such as:
+
+```DAX
+EVALUATE ROW("Sales", [Total Sales], "Orders", [Order Count])
+```
+
+Confirm both values are positive, then test dimensions filtering sales and the
+date measures. A successful create alone does not establish that the Direct Lake
+connection, calculated measure table, or query results work; a refresh or
+connection configuration may be needed. Keep the new directory's state for
+resuming or guarded cleanup.
 
 ## Resume and cleanup
 

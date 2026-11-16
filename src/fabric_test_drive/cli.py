@@ -9,6 +9,7 @@ import requests
 
 from .api import DeploymentError, Fabric, FabricApiError, login
 from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
+from .model import model_definition
 
 STATE = Path(".fabric-test-drive/state.json")
 
@@ -267,11 +268,17 @@ def deploy(api, state, tenant, capacity, name, types):
         api, state, "verification", verification, "RunNotebook",
         definition=notebook_definition if existing_notebook else None,
     )
+    if "semantic_model_id" in state:
+        ensure_item(api, state, "semantic_model_id", "SemanticModel", "Northwind Model")
+    else:
+        definition = model_definition(workspace, lakehouse)
+        ensure_item(api, state, "semantic_model_id", "SemanticModel", "Northwind Model", definition)
     state["verified"] = True
     save(state)
     print(f"\nData spike verified: https://app.fabric.microsoft.com/groups/{workspace}/list")
     print("Eight bronze source tables and five gold tables passed notebook assertions.")
-    print("Semantic model/report deployment is NOT implemented or verified in this spike.")
+    print("Semantic model created or reused; its queries and measures have NOT been verified.")
+    print("Report deployment is NOT implemented.")
 
 
 def cleanup(api, state):
@@ -329,7 +336,8 @@ def main(argv=None):
         print("EXPERIMENTAL: Northwind deployment feasibility spike")
         print("Create workspace -> schema-enabled lakehouse -> bronze and gold schemas")
         print(f"Copy {len(ENTITIES)} entities to bronze -> notebook builds five gold tables")
-        print("No model/report yet. No capacity provisioning. No writes in plan/preflight.")
+        print("Create semantic model bound to lakehouse -> no report yet")
+        print("No capacity provisioning. No writes in plan/preflight.")
         return 0
     try:
         state = load()
