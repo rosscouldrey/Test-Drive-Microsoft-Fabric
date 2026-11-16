@@ -166,8 +166,40 @@ git push -u origin add-northwind-model
 Existing export directories are never overwritten. For subsequent exports, use
 `--output templates/Northwind.SemanticModel-new`, review it, then replace the old
 directory with the new one (including removing stale definition files).
-The model deployment below uses this exported template. Report
-export and deployment are not implemented.
+The model deployment below uses this exported template. Report deployment and
+rebinding are not implemented.
+
+### Export your manually authored report
+
+From the deployment directory that contains the report's workspace state, run:
+
+```bash
+.venv/bin/python -m fabric_test_drive.export_report \
+  --report b2c86882-8324-4711-934e-054bf4ed9a3f
+```
+
+Tenant and workspace IDs default to `.fabric-test-drive/state.json`; use
+`--tenant` and `--workspace` if the report is in a different workspace or there
+is no local state. The exporter calls Fabric's
+`POST /v1/workspaces/{workspaceId}/reports/{reportId}/getDefinition`, waits for
+long-running exports, and writes the PBIR or PBIR-Legacy definition files into
+`templates/Northwind.Report/`. It does not modify the report. An existing output
+directory is never overwritten; choose another `--output` path for later exports.
+
+Review the report definition, especially `definition.pbir` and its semantic
+model reference, before committing:
+
+```bash
+git switch -c add-northwind-report
+git add templates/Northwind.Report
+git diff --cached
+git commit -m "Add Northwind report definition"
+git push -u origin add-northwind-report
+```
+
+The report reference may point to the current workspace's semantic model.
+Rebinding that reference when creating a report in a new deployment is a
+separate implementation step.
 
 ### Test the exported model in a new deployment
 
