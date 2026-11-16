@@ -9,7 +9,7 @@ import requests
 
 from fabric_test_drive import cli
 from fabric_test_drive.api import DeploymentError, Fabric
-from fabric_test_drive.artifacts import ENTITIES, SOURCE, notebook, pipeline
+from fabric_test_drive.artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
 
 
 TENANT = "11111111-1111-1111-1111-111111111111"
@@ -19,6 +19,7 @@ LAKEHOUSE = "44444444-4444-4444-4444-444444444444"
 CONNECTION = "55555555-5555-5555-5555-555555555555"
 PIPELINE = "66666666-6666-6666-6666-666666666666"
 NOTEBOOK = "77777777-7777-7777-7777-777777777777"
+SETUP = "88888888-8888-8888-8888-888888888888"
 CONNECTION_TYPES = [{
     "type": "OData",
     "creationMethods": [{
@@ -237,6 +238,7 @@ class ArtifactTests(unittest.TestCase):
             self.assertEqual(source["externalReferences"]["connection"], CONNECTION)
             dataset = sink["datasetSettings"]
             self.assertEqual(dataset["typeProperties"]["table"], table)
+            self.assertEqual(dataset["typeProperties"]["schema"], "bronze")
             target = dataset["linkedService"]["properties"]["typeProperties"]
             self.assertEqual(target["workspaceId"], WORKSPACE)
             self.assertEqual(target["artifactId"], LAKEHOUSE)
@@ -255,6 +257,19 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(attachment["default_lakehouse"], LAKEHOUSE)
         self.assertEqual(attachment["default_lakehouse_workspace_id"], WORKSPACE)
         compile("".join(decoded["cells"][0]["source"]), "<verification-notebook>", "exec")
+
+    def test_notebooks_initialize_schemas_and_use_qualified_tables(self):
+        setup = json.loads(base64.b64decode(schema_notebook(WORKSPACE, LAKEHOUSE)["parts"][0]["payload"]))
+        code = "".join(setup["cells"][0]["source"])
+        self.assertIn("CREATE SCHEMA IF NOT EXISTS bronze", code)
+        self.assertIn("CREATE SCHEMA IF NOT EXISTS gold", code)
+        self.assertEqual(setup["metadata"]["dependencies"]["lakehouse"]["default_lakehouse"], LAKEHOUSE)
+        compile(code, "<schema-notebook>", "exec")
+        verify = json.loads(base64.b64decode(notebook(WORKSPACE, LAKEHOUSE)["parts"][0]["payload"]))
+        code = "".join(verify["cells"][0]["source"])
+        self.assertIn('spark.table(f"bronze.{name}")', code)
+        self.assertIn('name = f"gold.{name}"', code)
+        self.assertIn('spark.table("gold.fact_sales")', code)
 
     def test_connection_uses_discovered_method_and_public_anonymous_source(self):
         types = json.loads(json.dumps(CONNECTION_TYPES))
@@ -328,7 +343,7 @@ class DeploymentTests(unittest.TestCase):
             "workspace_name": "Northwind Test", "workspace_id": WORKSPACE,
             "marker": "Fabric Test Drive deployment test",
             "connection_name": "Northwind-test", "completed": [], "jobs": {},
-            "verified": False,
+            "verified": False, "lakehouse_layout": "bronze-gold-schemas",
         }
 
     def test_failed_ingestion_updates_definition_before_retry_without_recreating(self):
@@ -378,12 +393,13 @@ class DeploymentTests(unittest.TestCase):
         api.list.return_value = []
         api.create.side_effect = [
             {"id": WORKSPACE}, {"id": LAKEHOUSE}, {"id": CONNECTION},
-            {"id": PIPELINE}, {"id": NOTEBOOK},
+            {"id": PIPELINE}, {"id": NOTEBOOK}, {"id": SETUP},
         ]
         items = {
             LAKEHOUSE: ("Lakehouse", "Northwind"),
             PIPELINE: ("DataPipeline", "Ingest Northwind"),
             NOTEBOOK: ("Notebook", "Verify Northwind"),
+            SETUP: ("Notebook", "Initialize Schemas"),
         }
 
         def get(method, path):
@@ -403,32 +419,70 @@ class DeploymentTests(unittest.TestCase):
 
         def run(workspace, item, kind, on_started):
             on_started(f"https://api.fabric.microsoft.com/v1/jobs/{item}")
-            if kind == "RunNotebook" and attempt["fail"]:
+            if item == NOTEBOOK and attempt["fail"]:
                 raise DeploymentError("notebook failed")
 
         api.run.side_effect = run
         with self.assertRaisesRegex(DeploymentError, "notebook failed"):
             cli.deploy(api, None, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
         state = cli.load()
-        self.assertEqual(state["completed"], ["ingestion"])
+        self.assertEqual(state["completed"], ["schema_setup", "ingestion"])
         self.assertFalse(state["verified"])
         self.assertIn("verification", state["jobs"])
+        self.assertEqual(
+            api.create.call_args_list[1].args[1]["creationPayload"],
+            {"enableSchemas": True},
+        )
+        self.assertEqual([call.args[1] for call in api.run.call_args_list], [SETUP, PIPELINE, NOTEBOOK])
         attempt["fail"] = False
         cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
-        self.assertEqual(api.create.call_count, 5)
-        self.assertEqual(api.run.call_count, 3)
+        self.assertEqual(api.create.call_count, 6)
+        self.assertEqual(api.run.call_count, 4)
         api.update_definition.assert_called_once_with(
             WORKSPACE, NOTEBOOK, notebook(WORKSPACE, LAKEHOUSE),
         )
         self.assertTrue(cli.load()["verified"])
         self.assertEqual(api.run.call_args.args[2], "RunNotebook")
         cli.deploy(api, cli.load(), TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
-        self.assertEqual(api.create.call_count, 5)
-        self.assertEqual(api.run.call_count, 5)
+        self.assertEqual(api.create.call_count, 6)
+        self.assertEqual(api.run.call_count, 7)
         self.assertEqual(
             api.update_definition.call_args.args,
             (WORKSPACE, NOTEBOOK, notebook(WORKSPACE, LAKEHOUSE)),
         )
+
+    def test_legacy_state_is_rejected_without_writes_or_state_changes(self):
+        state = self.state()
+        del state["lakehouse_layout"]
+        state["verified"] = True
+        cli.save(state)
+        before = self.state_path.read_text()
+        api = Mock()
+        with self.assertRaisesRegex(DeploymentError, "cannot be upgraded in place"):
+            cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
+        api.create.assert_not_called()
+        api.run.assert_not_called()
+        api.update_definition.assert_not_called()
+        self.assertEqual(self.state_path.read_text(), before)
+
+    def test_schema_setup_failure_prevents_ingestion(self):
+        api = Mock()
+        api.list.return_value = []
+        api.create.side_effect = [
+            {"id": WORKSPACE}, {"id": LAKEHOUSE}, {"id": CONNECTION},
+            {"id": PIPELINE}, {"id": NOTEBOOK}, {"id": SETUP},
+        ]
+        api.request.side_effect = lambda method, path: response({
+            "description": cli.load()["marker"], "capacityId": CAPACITY,
+        })
+        def fail(workspace, item, kind, started):
+            started(f"https://api.fabric.microsoft.com/v1/jobs/{item}")
+            raise DeploymentError("schema creation failed")
+        api.run.side_effect = fail
+        with self.assertRaisesRegex(DeploymentError, "schema creation failed"):
+            cli.deploy(api, None, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
+        self.assertEqual([call.args[1] for call in api.run.call_args_list], [SETUP])
+        self.assertNotIn("ingestion", cli.load()["completed"])
 
     def test_ownership_mismatch_prevents_cleanup(self):
         state = self.state()

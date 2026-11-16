@@ -8,17 +8,19 @@ NYTaxi is a future scenario.
 
 The goal is a browser-launched, populated Fabric workspace with a sales model
 and report. The original data deployment path has passed in a live Fabric tenant.
-The new gold dimensions are awaiting tenant verification; model and report
-authoring will be done in Fabric and brought back into this repository.
+The schema-enabled bronze/gold deployment is awaiting tenant verification;
+model and report authoring will be done in Fabric and brought back into this
+repository.
 
 ## What this increment creates
 
 | Object | Purpose |
 | --- | --- |
 | A new workspace on your existing capacity | Isolated demo environment |
-| `Northwind` lakehouse | Eight source tables, `fact_sales`, and four gold dimension tables |
+| `Northwind` lakehouse | Schema-enabled lakehouse with eight `bronze` tables and five `gold` tables |
 | Anonymous cloud OData connection | Public Northwind service; no source credentials |
-| `Ingest Northwind` pipeline | Sequential Copy activities using the OData connector |
+| `Initialize Schemas` notebook | Creates the bronze and gold schemas before ingestion |
+| `Ingest Northwind` pipeline | Sequential Copy activities using the OData connector into bronze |
 | `Verify Northwind` PySpark notebook | Checks populated tables, order-detail joins, persisted sales rows, and a sales aggregation |
 
 Source entities: Customers, Orders, Order_Details, Products, Categories,
@@ -87,7 +89,8 @@ confirmation is still required for a new deployment.
 
 ### Expected successful result
 
-The workspace has eight nonempty source tables and a gold star schema. The
+The workspace has eight nonempty source tables in `bronze` and a star schema in
+`gold`. The
 notebook verifies unique/non-null gold keys, persisted row counts, every sale's
 dimension matches, and a positive revenue aggregation.
 The terminal prints the workspace link.
@@ -95,18 +98,17 @@ Notebook execution errors fail the deployment rather than showing success.
 
 ### Build your model in Fabric
 
-Pull the latest code and rerun `fabric-test-drive deploy` using the existing
-state. It updates the recorded notebook and builds the gold tables; no new
-workspace is needed. A rerun consumes capacity and overwrites demo data.
+Use the `gold` schema's tables in your model. A rerun of a schema-enabled
+deployment consumes capacity and overwrites demo tables.
 
 Use these many-to-one, single-direction relationships (dimensions filter sales):
 
 | Fact column | Dimension key |
 | --- | --- |
-| `fact_sales.customer_id` | `dim_customer.customer_id` |
-| `fact_sales.product_id` | `dim_product.product_id` |
-| `fact_sales.employee_id` | `dim_employee.employee_id` |
-| `fact_sales.order_date` | `dim_date.date` |
+| `gold.fact_sales.customer_id` | `gold.dim_customer.customer_id` |
+| `gold.fact_sales.product_id` | `gold.dim_product.product_id` |
+| `gold.fact_sales.employee_id` | `gold.dim_employee.employee_id` |
+| `gold.fact_sales.order_date` | `gold.dim_date.date` |
 
 `fact_sales` has one row per order/product pair. Product includes category and
 supplier names; customer includes company/city/country; employee includes name
@@ -121,16 +123,25 @@ authored model/report definitions back to the repository for deployment work.
 
 ## Resume and cleanup
 
+**Existing non-schema deployments cannot be converted in place.** This version
+refuses to deploy over their saved state and never automatically deletes them.
+Keep the old directory and state if you want to retain the workspace. To create
+a separate schema-enabled workspace, use a fresh clone/directory, install the
+package as shown under Local development, and deploy with a new workspace name.
+Alternatively, if you no longer need anything in the old workspace, run the
+guarded `cleanup` command from its original directory before deploying again.
+Cleanup deletes the entire recorded workspace and connection.
+
 Run the same `deploy` command from the same directory to resume. Resource IDs
 and job URLs are saved in the gitignored `.fabric-test-drive/state.json`.
 Already-recorded items are reused, pending jobs are polled, and failed jobs can
 be retried on the next invocation. A fully successful deployment is rerunnable:
-the next run overwrites the eight source tables and `fact_sales`.
+the next run overwrites the bronze and gold tables.
 Before starting a new run of an existing ingestion pipeline, the launcher updates
 its definition from the checked-out code. Active runs are polled without changing
 their definition, and completed stages in an interrupted deployment are reused.
-Other existing item definitions are reused, not upgraded. Use a new deployment
-directory/workspace to test changes to those definitions.
+The verification notebook definition is also updated before a new verification
+run; the schema-initialization notebook is reused.
 
 **Keep this state file until cleanup is complete.** Closing a Codespace does
 not delete Fabric objects; deleting the Codespace can lose cleanup state.

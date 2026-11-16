@@ -59,7 +59,7 @@ def pipeline(workspace, lakehouse, connection):
                     "partitionOption": "None",
                     "datasetSettings": {
                         "annotations": [], "type": "LakehouseTable", "schema": [],
-                        "typeProperties": {"table": table},
+                        "typeProperties": {"schema": "bronze", "table": table},
                         "linkedService": {
                             "name": "NorthwindLakehouse",
                             "properties": {
@@ -78,17 +78,23 @@ def pipeline(workspace, lakehouse, connection):
     return definition("pipeline-content.json", {"properties": {"activities": activities}})
 
 
+def schema_notebook(workspace, lakehouse):
+    return notebook_definition(workspace, lakehouse, '''spark.sql("CREATE SCHEMA IF NOT EXISTS bronze")
+spark.sql("CREATE SCHEMA IF NOT EXISTS gold")
+''')
+
+
 def notebook(workspace, lakehouse):
     code = '''from pyspark.sql import functions as F
 
 tables = ("customers", "orders", "order_details", "products", "categories",
           "employees", "suppliers", "shippers")
-counts = {name: spark.table(name).count() for name in tables}
+counts = {name: spark.table(f"bronze.{name}").count() for name in tables}
 assert all(count > 0 for count in counts.values()), f"Empty source tables: {counts}"
 print(f"Verified source row counts: {counts}")
 
-orders = spark.table("orders").alias("o")
-details = spark.table("order_details").alias("d")
+orders = spark.table("bronze.orders").alias("o")
+details = spark.table("bronze.order_details").alias("d")
 joined = details.join(orders, F.col("d.OrderID") == F.col("o.OrderID"))
 assert joined.count() == counts["order_details"], "Unmatched or duplicate order keys"
 fact = joined.select(
@@ -106,20 +112,21 @@ fact = joined.select(
 assert fact.filter("order_date IS NULL OR sales_amount IS NULL").count() == 0
 
 def save_gold(frame, name, *keys):
+    name = f"gold.{name}"
     assert frame.count() > 0, f"Empty gold table: {name}"
     assert frame.filter(" OR ".join(f"{key} IS NULL" for key in keys)).count() == 0, f"Null keys: {name}"
     assert frame.count() == frame.select(*keys).distinct().count(), f"Duplicate keys: {name}"
     frame.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(name)
     assert spark.table(name).count() == frame.count(), f"Persisted row count differs: {name}"
 
-save_gold(spark.table("customers").select(
+save_gold(spark.table("bronze.customers").select(
     F.col("CustomerID").alias("customer_id"),
     F.col("CompanyName").alias("company_name"),
     F.col("City").alias("city"), F.col("Country").alias("country"),
 ), "dim_customer", "customer_id")
-categories = spark.table("categories").select("CategoryID", "CategoryName")
-suppliers = spark.table("suppliers").select("SupplierID", F.col("CompanyName").alias("SupplierName"))
-products = spark.table("products").join(categories, "CategoryID", "left").join(suppliers, "SupplierID", "left")
+categories = spark.table("bronze.categories").select("CategoryID", "CategoryName")
+suppliers = spark.table("bronze.suppliers").select("SupplierID", F.col("CompanyName").alias("SupplierName"))
+products = spark.table("bronze.products").join(categories, "CategoryID", "left").join(suppliers, "SupplierID", "left")
 assert products.count() == counts["products"], "Duplicate product/category/supplier keys"
 save_gold(products.select(
     F.col("ProductID").cast("bigint").alias("product_id"),
@@ -127,7 +134,7 @@ save_gold(products.select(
     F.col("CategoryName").alias("category_name"),
     F.col("SupplierName").alias("supplier_name"),
 ), "dim_product", "product_id")
-save_gold(spark.table("employees").select(
+save_gold(spark.table("bronze.employees").select(
     F.col("EmployeeID").cast("bigint").alias("employee_id"),
     F.concat_ws(" ", "FirstName", "LastName").alias("employee_name"),
     F.col("Title").alias("title"), F.col("Country").alias("country"),
@@ -150,13 +157,17 @@ for dimension, key, fact_key in (
     ("dim_employee", "employee_id", "employee_id"),
     ("dim_date", "date", "order_date"),
 ):
-    keys = spark.table(dimension).select(F.col(key).alias(fact_key))
-    assert spark.table("fact_sales").join(keys, fact_key, "left_anti").count() == 0, f"Unmatched {dimension} keys"
-assert spark.table("fact_sales").count() == counts["order_details"]
-sales = spark.table("fact_sales").agg(F.sum("sales_amount")).first()[0]
+    keys = spark.table(f"gold.{dimension}").select(F.col(key).alias(fact_key))
+    assert spark.table("gold.fact_sales").join(keys, fact_key, "left_anti").count() == 0, f"Unmatched {dimension} keys"
+assert spark.table("gold.fact_sales").count() == counts["order_details"]
+sales = spark.table("gold.fact_sales").agg(F.sum("sales_amount")).first()[0]
 assert sales is not None and sales > 0, "Sales query returned no positive revenue"
 print(f"Verified gold layer: {counts['order_details']} sales rows; sales amount: {sales}")
 '''
+    return notebook_definition(workspace, lakehouse, code)
+
+
+def notebook_definition(workspace, lakehouse, code):
     content = {
         "nbformat": 4, "nbformat_minor": 5,
         "metadata": {

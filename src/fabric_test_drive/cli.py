@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import requests
 
 from .api import DeploymentError, Fabric, login
-from .artifacts import ENTITIES, SOURCE, notebook, pipeline
+from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
 
 STATE = Path(".fabric-test-drive/state.json")
 
@@ -136,7 +136,7 @@ def create_recorded(api, state, key, path, body):
     return item["id"]
 
 
-def ensure_item(api, state, key, kind, name, content=None):
+def ensure_item(api, state, key, kind, name, content=None, creation_payload=None):
     workspace = state["workspace_id"]
     if key in state:
         item = api.request("GET", f"workspaces/{workspace}/items/{state[key]}").json()
@@ -146,6 +146,8 @@ def ensure_item(api, state, key, kind, name, content=None):
     body = {"displayName": name, "type": kind}
     if content is not None:
         body["definition"] = content
+    if creation_payload is not None:
+        body["creationPayload"] = creation_payload
     item_id = create_recorded(
         api, state, key, f"workspaces/{workspace}/items", body
     )
@@ -195,6 +197,11 @@ def deploy(api, state, tenant, capacity, name, types):
             f"Previous create has an unresolved outcome: {state['pending_create']}. "
             "Inspect Fabric and deployment state before retrying; no write was repeated."
         )
+    if state and state.get("lakehouse_layout") != "bronze-gold-schemas":
+        raise DeploymentError(
+            "This deployment uses a legacy non-schema lakehouse and cannot be upgraded in place. "
+            "Keep its state for cleanup, or deploy from a separate directory with a new workspace name."
+        )
     if state is None:
         if not name or len(name) > 100:
             raise DeploymentError("Workspace name must contain 1-100 characters.")
@@ -207,6 +214,7 @@ def deploy(api, state, tenant, capacity, name, types):
             "workspace_name": name, "marker": f"Fabric Test Drive deployment {identifier}",
             "connection_name": f"Northwind-{identifier}",
             "completed": [], "jobs": {}, "verified": False,
+            "lakehouse_layout": "bronze-gold-schemas",
         }
         save(state)
     if state.get("verified"):
@@ -220,7 +228,10 @@ def deploy(api, state, tenant, capacity, name, types):
         print(f"Created workspace: {state['workspace_name']}")
     owned_workspace(api, state)
     workspace = state["workspace_id"]
-    lakehouse = ensure_item(api, state, "lakehouse_id", "Lakehouse", "Northwind")
+    lakehouse = ensure_item(
+        api, state, "lakehouse_id", "Lakehouse", "Northwind",
+        creation_payload={"enableSchemas": True},
+    )
     if "connection_id" not in state:
         create_recorded(
             api, state, "connection_id", "connections",
@@ -243,6 +254,11 @@ def deploy(api, state, tenant, capacity, name, types):
         api, state, "notebook_id", "Notebook", "Verify Northwind",
         notebook_definition,
     )
+    setup = ensure_item(
+        api, state, "schema_notebook_id", "Notebook", "Initialize Schemas",
+        schema_notebook(workspace, lakehouse),
+    )
+    run_stage(api, state, "schema_setup", setup, "RunNotebook")
     run_stage(
         api, state, "ingestion", ingestion, "Pipeline",
         definition=ingestion_definition if existing_pipeline else None,
@@ -254,7 +270,7 @@ def deploy(api, state, tenant, capacity, name, types):
     state["verified"] = True
     save(state)
     print(f"\nData spike verified: https://app.fabric.microsoft.com/groups/{workspace}/list")
-    print("Eight source tables, fact_sales, and four gold dimensions passed notebook assertions.")
+    print("Eight bronze source tables and five gold tables passed notebook assertions.")
     print("Semantic model/report deployment is NOT implemented or verified in this spike.")
 
 
@@ -304,8 +320,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.command == "plan":
         print("EXPERIMENTAL: Northwind deployment feasibility spike")
-        print("Create workspace -> lakehouse -> anonymous OData connection -> ingestion pipeline")
-        print(f"Copy {len(ENTITIES)} entities -> notebook -> fact_sales and four gold dimensions")
+        print("Create workspace -> schema-enabled lakehouse -> bronze and gold schemas")
+        print(f"Copy {len(ENTITIES)} entities to bronze -> notebook builds five gold tables")
         print("No model/report yet. No capacity provisioning. No writes in plan/preflight.")
         return 0
     try:
