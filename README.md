@@ -7,16 +7,16 @@ The first scenario uses Northwind through Fabric's actual OData connector.
 NYTaxi is a future scenario.
 
 The goal is a browser-launched, populated Fabric workspace with a sales model
-and report. This first increment implements the data deployment path; it has
-not yet been verified against a live Fabric tenant. API-contract fixtures are
-not evidence of successful tenant deployment.
+and report. The original data deployment path has passed in a live Fabric tenant.
+The new gold dimensions are awaiting tenant verification; model and report
+authoring will be done in Fabric and brought back into this repository.
 
 ## What this increment creates
 
 | Object | Purpose |
 | --- | --- |
 | A new workspace on your existing capacity | Isolated demo environment |
-| `Northwind` lakehouse | Eight source tables and a `fact_sales` Delta table |
+| `Northwind` lakehouse | Eight source tables, `fact_sales`, and four gold dimension tables |
 | Anonymous cloud OData connection | Public Northwind service; no source credentials |
 | `Ingest Northwind` pipeline | Sequential Copy activities using the OData connector |
 | `Verify Northwind` PySpark notebook | Checks populated tables, order-detail joins, persisted sales rows, and a sales aggregation |
@@ -27,7 +27,7 @@ OData `$select` projections exclude the binary `Categories.Picture` and
 `Employees.Photo` fields, which are unsupported by this Copy path. Other scalar
 fields are retained; source images are not part of this demo.
 
-**Not implemented:** dimension tables, semantic model, Power BI report, hosted
+**Not implemented:** semantic model, Power BI report, hosted
 web wizard, capacity creation, and unattended GitHub Actions deployment.
 The deployment reports data-stage success only after the pipeline and
 assertion-bearing notebook jobs complete.
@@ -87,15 +87,37 @@ confirmation is still required for a new deployment.
 
 ### Expected successful result
 
-The workspace has eight nonempty source tables and a populated `fact_sales`
-table. The notebook verifies that every order-detail row joins to exactly one
-order, checks required sales fields, reads the persisted fact table back, and
-runs a positive revenue aggregation. The terminal prints the workspace link.
+The workspace has eight nonempty source tables and a gold star schema. The
+notebook verifies unique/non-null gold keys, persisted row counts, every sale's
+dimension matches, and a positive revenue aggregation.
+The terminal prints the workspace link.
 Notebook execution errors fail the deployment rather than showing success.
 
-The pipeline JSON, anonymous OData connection, lakehouse table destination,
-Spark attachment, and delegated job execution still require a real tenant
-smoke test. SQL endpoint readiness and model/report binding are later gates.
+### Build your model in Fabric
+
+Pull the latest code and rerun `fabric-test-drive deploy` using the existing
+state. It updates the recorded notebook and builds the gold tables; no new
+workspace is needed. A rerun consumes capacity and overwrites demo data.
+
+Use these many-to-one, single-direction relationships (dimensions filter sales):
+
+| Fact column | Dimension key |
+| --- | --- |
+| `fact_sales.customer_id` | `dim_customer.customer_id` |
+| `fact_sales.product_id` | `dim_product.product_id` |
+| `fact_sales.employee_id` | `dim_employee.employee_id` |
+| `fact_sales.order_date` | `dim_date.date` |
+
+`fact_sales` has one row per order/product pair. Product includes category and
+supplier names; customer includes company/city/country; employee includes name
+and title. The date dimension covers every day from the first to last order.
+Mark it as a date table, sort `month` by `month_number`, and use `year_month` for
+a chronological sales trend.
+
+Suggested measures: `SUM(fact_sales[sales_amount])`,
+`DISTINCTCOUNT(fact_sales[order_id])`, `SUM(fact_sales[quantity])`, and
+average order value (total sales divided by order count). Export or sync the
+authored model/report definitions back to the repository for deployment work.
 
 ## Resume and cleanup
 

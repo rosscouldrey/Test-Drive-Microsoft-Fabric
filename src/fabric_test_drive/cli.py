@@ -237,19 +237,24 @@ def deploy(api, state, tenant, capacity, name, types):
         api, state, "pipeline_id", "DataPipeline", "Ingest Northwind",
         ingestion_definition,
     )
+    existing_notebook = "notebook_id" in state
+    notebook_definition = notebook(workspace, lakehouse)
     verification = ensure_item(
         api, state, "notebook_id", "Notebook", "Verify Northwind",
-        notebook(workspace, lakehouse),
+        notebook_definition,
     )
     run_stage(
         api, state, "ingestion", ingestion, "Pipeline",
         definition=ingestion_definition if existing_pipeline else None,
     )
-    run_stage(api, state, "verification", verification, "RunNotebook")
+    run_stage(
+        api, state, "verification", verification, "RunNotebook",
+        definition=notebook_definition if existing_notebook else None,
+    )
     state["verified"] = True
     save(state)
     print(f"\nData spike verified: https://app.fabric.microsoft.com/groups/{workspace}/list")
-    print("Eight source tables and fact_sales passed notebook assertions.")
+    print("Eight source tables, fact_sales, and four gold dimensions passed notebook assertions.")
     print("Semantic model/report deployment is NOT implemented or verified in this spike.")
 
 
@@ -300,7 +305,7 @@ def main(argv=None):
     if args.command == "plan":
         print("EXPERIMENTAL: Northwind deployment feasibility spike")
         print("Create workspace -> lakehouse -> anonymous OData connection -> ingestion pipeline")
-        print(f"Copy {len(ENTITIES)} entities -> run verification/transformation notebook -> fact_sales")
+        print(f"Copy {len(ENTITIES)} entities -> notebook -> fact_sales and four gold dimensions")
         print("No model/report yet. No capacity provisioning. No writes in plan/preflight.")
         return 0
     try:

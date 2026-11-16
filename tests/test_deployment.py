@@ -417,11 +417,18 @@ class DeploymentTests(unittest.TestCase):
         cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
         self.assertEqual(api.create.call_count, 5)
         self.assertEqual(api.run.call_count, 3)
+        api.update_definition.assert_called_once_with(
+            WORKSPACE, NOTEBOOK, notebook(WORKSPACE, LAKEHOUSE),
+        )
         self.assertTrue(cli.load()["verified"])
         self.assertEqual(api.run.call_args.args[2], "RunNotebook")
         cli.deploy(api, cli.load(), TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
         self.assertEqual(api.create.call_count, 5)
         self.assertEqual(api.run.call_count, 5)
+        self.assertEqual(
+            api.update_definition.call_args.args,
+            (WORKSPACE, NOTEBOOK, notebook(WORKSPACE, LAKEHOUSE)),
+        )
 
     def test_ownership_mismatch_prevents_cleanup(self):
         state = self.state()
