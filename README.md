@@ -121,6 +121,52 @@ Suggested measures: `SUM(fact_sales[sales_amount])`,
 average order value (total sales divided by order count). Export or sync the
 authored model/report definitions back to the repository for deployment work.
 
+### Export your manually authored semantic model
+
+From the repository directory, export the model's definition as readable TMDL
+files using your existing Azure CLI sign-in:
+
+```bash
+.venv/bin/python -m fabric_test_drive.export_model --model <semantic-model-uuid>
+```
+
+Find the semantic model UUID in its Fabric URL (the `dataset` ID, not the report
+ID), or list the workspace's semantic models using Fabric's
+`GET /v1/workspaces/{workspaceId}/semanticModels` API.
+Tenant and workspace IDs default to `.fabric-test-drive/state.json`. To export
+from another workspace, or without local deployment state, specify both:
+
+```bash
+.venv/bin/python -m fabric_test_drive.export_model \
+  --tenant <tenant-uuid> --workspace <workspace-uuid> --model <semantic-model-uuid>
+```
+
+The script calls
+`POST /v1/workspaces/{workspaceId}/semanticModels/{semanticModelId}/getDefinition?format=TMDL`,
+waits for asynchronous exports, and decodes each definition part into
+`templates/Northwind.SemanticModel/`. It does not change the model, deploy
+resources, or modify deployment state. If authentication has expired, run
+`az login --tenant <tenant-uuid> --use-device-code --allow-no-subscriptions`
+and retry. The signed-in account needs permission to read the model definition.
+
+Review the exported files for sensitive values and environment-specific data
+source references before committing. Definitions are exported, not table data.
+For example:
+
+```bash
+git switch -c add-northwind-model
+git add templates/Northwind.SemanticModel
+git diff --cached
+git commit -m "Add authored Northwind semantic model"
+git push -u origin add-northwind-model
+```
+
+Existing export directories are never overwritten. For subsequent exports, use
+`--output templates/Northwind.SemanticModel-new`, review it, then replace the old
+directory with the new one (including removing stale definition files).
+This captures the model for source control only: report export, rebinding the
+model to a new lakehouse, and automatic model/report creation are not implemented.
+
 ## Resume and cleanup
 
 **Existing non-schema deployments cannot be converted in place.** This version
