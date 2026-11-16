@@ -551,6 +551,70 @@ class DeploymentTests(unittest.TestCase):
         )
         self.assertFalse(self.state_path.exists())
 
+    def test_cleanup_continues_when_workspace_was_deleted_manually(self):
+        state = self.state()
+        state["connection_id"] = CONNECTION
+        state["jobs"]["ingestion"] = "https://api.fabric.microsoft.com/v1/jobs/job"
+        cli.save(state)
+        api = Fabric(TENANT)
+        api.token = Mock(return_value="test-token")
+        api.session.request = Mock(side_effect=[
+            response({"errorCode": "WorkspaceNotFound"}, status=404),
+            response({"displayName": state["connection_name"]}),
+            response(status=200),
+        ])
+        with patch("builtins.input", return_value=state["workspace_name"]):
+            cli.cleanup(api, state)
+        calls = api.session.request.call_args_list
+        self.assertEqual(
+            [(call.args[0], call.args[1].split("/v1/")[1]) for call in calls],
+            [("GET", f"workspaces/{WORKSPACE}"),
+             ("GET", f"connections/{CONNECTION}"),
+             ("DELETE", f"connections/{CONNECTION}")],
+        )
+        self.assertFalse(self.state_path.exists())
+
+    def test_missing_workspace_is_saved_before_connection_check_and_resumable(self):
+        state = self.state()
+        state["connection_id"] = CONNECTION
+        cli.save(state)
+        api = Fabric(TENANT)
+        api.token = Mock(return_value="test-token")
+        api.session.request = Mock(side_effect=[
+            response({"errorCode": "WorkspaceNotFound"}, status=404),
+            response({"errorCode": "Forbidden"}, status=403),
+        ])
+        with self.assertRaisesRegex(DeploymentError, "HTTP 403"):
+            cli.cleanup(api, state)
+        self.assertTrue(cli.load()["workspace_deleted"])
+        api.session.request.reset_mock()
+        api.session.request.side_effect = [
+            response({"displayName": state["connection_name"]}),
+            response(status=200),
+        ]
+        with patch("builtins.input", return_value=state["workspace_name"]):
+            cli.cleanup(api, cli.load())
+        self.assertEqual(api.session.request.call_count, 2)
+        self.assertFalse(self.state_path.exists())
+
+    def test_other_workspace_errors_do_not_mark_it_deleted(self):
+        for status, data in [
+            (403, {"errorCode": "Forbidden"}),
+            (404, {"errorCode": "NotFound"}),
+            (500, {"errorCode": "WorkspaceNotFound"}),
+            (404, None),
+        ]:
+            with self.subTest(status=status, data=data):
+                state = self.state()
+                cli.save(state)
+                api = Fabric(TENANT)
+                api.token = Mock(return_value="test-token")
+                api.session.request = Mock(return_value=response(data, status=status))
+                with self.assertRaises(DeploymentError):
+                    cli.cleanup(api, state)
+                self.assertNotIn("workspace_deleted", cli.load())
+                api.session.request.assert_called_once()
+
     def test_running_job_prevents_cleanup(self):
         state = self.state()
         state["jobs"]["ingestion"] = "https://api.fabric.microsoft.com/v1/jobs/job"

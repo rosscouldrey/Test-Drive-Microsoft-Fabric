@@ -17,6 +17,17 @@ class DeploymentError(RuntimeError):
     pass
 
 
+class FabricApiError(DeploymentError):
+    def __init__(self, message, response):
+        super().__init__(message)
+        self.status_code = response.status_code
+        try:
+            data = response.json()
+        except ValueError:
+            data = None
+        self.error_code = data.get("errorCode") if isinstance(data, dict) else None
+
+
 def azure(*args):
     try:
         result = subprocess.run(
@@ -92,9 +103,10 @@ class Fabric:
                 continue
             if not 200 <= response.status_code < 300:
                 request_id = response.headers.get("requestId", "unavailable")
-                raise DeploymentError(
+                raise FabricApiError(
                     f"{method} {urlsplit(url).path}: HTTP {response.status_code}; "
-                    f"request ID {request_id}. {response.text[:1000]}"
+                    f"request ID {request_id}. {response.text[:1000]}",
+                    response,
                 )
             return response
         raise AssertionError("Unreachable")

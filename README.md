@@ -169,8 +169,10 @@ Cleanup checks the workspace's deployment marker and recorded connection name,
 requires typing the workspace name, and refuses while a recorded job is active.
 It deletes the **entire recorded workspace**, including anything you subsequently
 added, and the connection created by this deployment. Do not share that connection
-with other workspaces. It never deletes or pauses a capacity. If an object has
-already been removed manually or ownership checks fail, cleanup stops for inspection.
+with other workspaces. It never deletes or pauses a capacity. If Fabric reports
+that the recorded workspace was not found, cleanup records it as already deleted
+and continues with the connection. Other workspace errors, a missing connection,
+or failed ownership checks stop cleanup for inspection.
 
 Azure CLI maintains a local authentication cache. Use a private Codespace,
 sign out when finished, and do not expose its terminal or authentication cache.
