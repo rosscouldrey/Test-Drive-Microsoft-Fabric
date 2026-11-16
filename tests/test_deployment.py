@@ -330,6 +330,9 @@ class ArtifactTests(unittest.TestCase):
 
 class DeploymentTests(unittest.TestCase):
     def setUp(self):
+        storage_patch = patch("fabric_test_drive.cli.ensure_large_storage")
+        self.ensure_large_storage = storage_patch.start()
+        self.addCleanup(storage_patch.stop)
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.state_path = Path(self.directory.name) / "state.json"
@@ -506,6 +509,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual([call.args[2] for call in run_stage.call_args_list],
                          ["schema_setup", "ingestion", "verification"])
         self.assertEqual(cli.load()["semantic_model_id"], "model-id")
+        self.ensure_large_storage.assert_called_once_with(TENANT, WORKSPACE, "model-id")
         cli.deploy(api, cli.load(), TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
         api.create.assert_called_once()
 

@@ -9,7 +9,7 @@ import requests
 
 from .api import DeploymentError, Fabric, FabricApiError, login
 from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
-from .model import model_definition
+from .model import ensure_large_storage, model_definition
 
 STATE = Path(".fabric-test-drive/state.json")
 
@@ -273,6 +273,7 @@ def deploy(api, state, tenant, capacity, name, types):
     else:
         definition = model_definition(workspace, lakehouse)
         ensure_item(api, state, "semantic_model_id", "SemanticModel", "Northwind Model", definition)
+    ensure_large_storage(tenant, workspace, state["semantic_model_id"])
     state["verified"] = True
     save(state)
     print(f"\nData spike verified: https://app.fabric.microsoft.com/groups/{workspace}/list")

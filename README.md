@@ -169,7 +169,12 @@ export and deployment are not implemented.
 Deployment creates `Northwind Model` after the gold tables pass
 their checks, replacing the template's OneLake workspace and lakehouse IDs with
 the new deployment's IDs. This is experimental and has not been validated in a
-live tenant. The launcher checks creation, **not** whether measures or queries
+fresh end-to-end live deployment. It also sets the model's target storage mode to
+`PremiumFiles` through the Power BI API. Live troubleshooting confirmed that a
+model created with the default `Abf` storage failed refresh, and enabling large
+storage allowed refresh to succeed. The caller must own the model and have
+permission to update it through the Power BI API.
+The launcher checks creation and the target storage setting, **not** whether measures or queries
 work. Its existing data-verification result is not a semantic model verification.
 
 Use a separate clone or Codespace so the original workspace and its state remain
@@ -182,8 +187,8 @@ and run:
 
 Select a capacity, enter a **new workspace name**, and type `deploy` to confirm.
 A recorded model is reused, not updated from subsequent template edits. If creation
-succeeds, open `Northwind Model` in Fabric, check its OneLake connection and
-authentication, and run a DAX query such as:
+succeeds, wait for any large-storage conversion to finish, refresh `Northwind Model`
+in Fabric, check its OneLake connection and authentication, and run a DAX query such as:
 
 ```DAX
 EVALUATE ROW("Sales", [Total Sales], "Orders", [Order Count])

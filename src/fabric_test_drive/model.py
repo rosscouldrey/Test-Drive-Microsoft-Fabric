@@ -1,9 +1,12 @@
 import base64
+import json
 from pathlib import Path
 import re
 from uuid import UUID
 
-from .api import DeploymentError
+import requests
+
+from .api import DeploymentError, azure
 
 
 MODEL_TEMPLATE = Path(__file__).resolve().parents[2] / "templates/Northwind.SemanticModel"
@@ -12,6 +15,45 @@ ONELAKE_SOURCE = re.compile(
     r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}/'
     r'[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}(?=")'
 )
+
+
+def ensure_large_storage(tenant, workspace, model):
+    tenant, workspace, model = (str(UUID(value)) for value in (tenant, workspace, model))
+    url = f"https://api.powerbi.com/v1.0/myorg/groups/{workspace}/datasets/{model}"
+    token = json.loads(azure(
+        "account", "get-access-token", "--tenant", tenant,
+        "--resource", "https://analysis.windows.net/powerbi/api", "--output", "json",
+    ))["accessToken"]
+
+    def request(method, body=None):
+        try:
+            response = requests.request(
+                method, url, json=body,
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=60, allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise DeploymentError(
+                "Power BI storage configuration request failed; inspect model settings "
+                "and rerun deployment."
+            ) from exc
+        if not 200 <= response.status_code < 300:
+            raise DeploymentError(
+                f"Power BI storage configuration: HTTP {response.status_code}. "
+                f"{response.text[:1000]}"
+            )
+        return response
+
+    if request("GET").json().get("targetStorageMode") == "PremiumFiles":
+        print("Semantic model already targets large storage (PremiumFiles).")
+        return
+    request("PATCH", {"targetStorageMode": "PremiumFiles"})
+    if request("GET").json().get("targetStorageMode") != "PremiumFiles":
+        raise DeploymentError(
+            "Semantic model large-storage setting is not yet confirmed. "
+            "Inspect its settings and rerun deployment."
+        )
+    print("Semantic model large storage requested (PremiumFiles); conversion may still be running.")
 
 
 def model_definition(workspace, lakehouse):
