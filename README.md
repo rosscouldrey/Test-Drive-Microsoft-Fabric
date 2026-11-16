@@ -43,7 +43,10 @@ assertion-bearing notebook jobs complete.
 - Tenant policies that permit Azure CLI delegated sign-in and the required
   Fabric APIs. Device-code authentication may be blocked by Conditional Access.
   Administrator consent may be required; this launcher does not bypass policy.
-- Outbound access to Fabric, Microsoft sign-in, and `services.odata.org`.
+- Power BI API access to update and refresh the semantic model, Build/read access
+  for its DAX check, and the tenant's **Dataset Execute Queries REST API** setting
+  enabled. The deployment account must own the model and be able to read its source tables.
+- Outbound access to Fabric, Power BI APIs, Microsoft sign-in, and `services.odata.org`.
 
 No Azure subscription is required by the launcher when using an already
 available Fabric capacity, but the capacity must support the deployed workloads.
@@ -95,6 +98,8 @@ notebook verifies unique/non-null gold keys, persisted row counts, every sale's
 dimension matches, and a positive revenue aggregation.
 The terminal prints the workspace link.
 Notebook execution errors fail the deployment rather than showing success.
+The model must also finish refreshing and return positive `Total Sales` and
+`Order Count` values through a DAX query before deployment reports success.
 
 ### Explore the model in Fabric
 
@@ -170,12 +175,16 @@ Deployment creates `Northwind Model` after the gold tables pass
 their checks, replacing the template's OneLake workspace and lakehouse IDs with
 the new deployment's IDs. This is experimental and has not been validated in a
 fresh end-to-end live deployment. It also sets the model's target storage mode to
-`PremiumFiles` through the Power BI API. Live troubleshooting confirmed that a
-model created with the default `Abf` storage failed refresh, and enabling large
-storage allowed refresh to succeed. The caller must own the model and have
-permission to update it through the Power BI API.
-The launcher checks creation and the target storage setting, **not** whether measures or queries
-work. Its existing data-verification result is not a semantic model verification.
+`PremiumFiles` through the Power BI API. Live troubleshooting showed that the
+target storage setting alone does not establish readiness: an initial refresh
+could fail while a subsequent refresh and DAX query succeeded.
+
+The launcher now waits for the target storage setting, starts a transactional
+full refresh with up to two service-side retries (five minutes per attempt),
+and polls the recorded refresh until completion. It then executes a DAX query
+and requires positive `Total Sales` and `Order Count` values. It never treats a
+failed refresh or HTTP 200 response containing query errors as success.
+This automatic readiness flow still needs fresh live-tenant verification.
 
 Use a separate clone or Codespace so the original workspace and its state remain
 untouched. In that new directory, install the package as under Local development
@@ -186,19 +195,17 @@ and run:
 ```
 
 Select a capacity, enter a **new workspace name**, and type `deploy` to confirm.
-A recorded model is reused, not updated from subsequent template edits. If creation
-succeeds, wait for any large-storage conversion to finish, refresh `Northwind Model`
-in Fabric, check its OneLake connection and authentication, and run a DAX query such as:
+A recorded model is reused, not updated from subsequent template edits. Manual
+refresh should not be necessary. After deployment succeeds, you can independently
+run the same DAX check in Fabric:
 
 ```DAX
 EVALUATE ROW("Sales", [Total Sales], "Orders", [Order Count])
 ```
 
-Confirm both values are positive, then test dimensions filtering sales and the
-date measures. A successful create alone does not establish that the Direct Lake
-connection, calculated measure table, or query results work; a refresh or
-connection configuration may be needed. Keep the new directory's state for
-resuming or guarded cleanup.
+Additional manual checks should test dimensions filtering sales and the date
+measures; the automated query does not validate every measure or relationship.
+Keep the new directory's state for resuming or guarded cleanup.
 
 ## Resume and cleanup
 
@@ -221,6 +228,14 @@ its definition from the checked-out code. Active runs are polled without changin
 their definition, and completed stages in an interrupted deployment are reused.
 The verification notebook definition is also updated before a new verification
 run; the schema-initialization notebook is reused.
+Model refresh IDs and completed refresh/query stages are saved separately.
+An interrupted deployment polls the same refresh rather than submitting another.
+If the refresh fails after its service retries, inspect its error in refresh
+history before rerunning `deploy`; the next invocation can retry a known failed
+refresh without repeating completed data stages. A timeout preserves the refresh
+ID so it can be polled on resume. The refresh wait is bounded to 30 minutes per
+invocation. A completed refresh is not repeated just because query verification
+fails (for example, because Execute Queries is disabled).
 
 **Keep this state file until cleanup is complete.** Closing a Codespace does
 not delete Fabric objects; deleting the Codespace can lose cleanup state.
@@ -246,6 +261,7 @@ az logout
 
 Cleanup checks the workspace's deployment marker and recorded connection name,
 requires typing the workspace name, and refuses while a recorded job is active.
+This includes a recorded semantic model refresh.
 It deletes the **entire recorded workspace**, including anything you subsequently
 added, and the connection created by this deployment. Do not share that connection
 with other workspaces. It never deletes or pauses a capacity. If Fabric reports

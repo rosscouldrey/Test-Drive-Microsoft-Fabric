@@ -7,9 +7,9 @@ from uuid import UUID, uuid4
 
 import requests
 
-from .api import DeploymentError, Fabric, FabricApiError, login
+from .api import DeploymentError, Fabric, FabricApiError, PowerBI, login
 from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
-from .model import ensure_large_storage, model_definition
+from .model import model_definition, refresh_status, verify_model
 
 STATE = Path(".fabric-test-drive/state.json")
 
@@ -220,6 +220,7 @@ def deploy(api, state, tenant, capacity, name, types):
         save(state)
     if state.get("verified"):
         state.update(completed=[], jobs={}, verified=False)
+        state.pop("model_refresh_id", None)
         save(state)
     if "workspace_id" not in state:
         create_recorded(api, state, "workspace_id", "workspaces", {
@@ -273,12 +274,12 @@ def deploy(api, state, tenant, capacity, name, types):
     else:
         definition = model_definition(workspace, lakehouse)
         ensure_item(api, state, "semantic_model_id", "SemanticModel", "Northwind Model", definition)
-    ensure_large_storage(tenant, workspace, state["semantic_model_id"])
+    verify_model(tenant, state, save)
     state["verified"] = True
     save(state)
     print(f"\nData spike verified: https://app.fabric.microsoft.com/groups/{workspace}/list")
     print("Eight bronze source tables and five gold tables passed notebook assertions.")
-    print("Semantic model created or reused; its queries and measures have NOT been verified.")
+    print("Semantic model refresh completed; Total Sales and Order Count returned positive values.")
     print("Report deployment is NOT implemented.")
 
 
@@ -310,6 +311,12 @@ def cleanup(api, state):
     if input(f"Type {state['workspace_name']!r} to confirm: ") != state["workspace_name"]:
         raise DeploymentError("Cleanup cancelled; nothing was deleted.")
     if "workspace_id" in state and not state.get("workspace_deleted"):
+        if state.get("model_refresh_id"):
+            status = refresh_status(PowerBI(state["tenant_id"]), state).json()["status"]
+            if status not in ("Completed", "Failed", "Cancelled", "Disabled", "TimedOut"):
+                raise DeploymentError(
+                    "A model refresh is still running. Wait for it or cancel it in Fabric before cleanup."
+                )
         for job in state["jobs"].values():
             status = api.request("GET", job).json()["status"]
             if status not in ("Completed", "Failed", "Cancelled", "Deduped"):
@@ -337,7 +344,8 @@ def main(argv=None):
         print("EXPERIMENTAL: Northwind deployment feasibility spike")
         print("Create workspace -> schema-enabled lakehouse -> bronze and gold schemas")
         print(f"Copy {len(ENTITIES)} entities to bronze -> notebook builds five gold tables")
-        print("Create semantic model bound to lakehouse -> no report yet")
+        print("Create semantic model -> large storage -> refresh with retries -> verify Sales and Orders")
+        print("No report yet.")
         print("No capacity provisioning. No writes in plan/preflight.")
         return 0
     try:

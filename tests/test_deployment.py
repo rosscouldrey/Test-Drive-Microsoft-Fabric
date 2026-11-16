@@ -330,8 +330,8 @@ class ArtifactTests(unittest.TestCase):
 
 class DeploymentTests(unittest.TestCase):
     def setUp(self):
-        storage_patch = patch("fabric_test_drive.cli.ensure_large_storage")
-        self.ensure_large_storage = storage_patch.start()
+        storage_patch = patch("fabric_test_drive.cli.verify_model")
+        self.verify_model = storage_patch.start()
         self.addCleanup(storage_patch.stop)
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -509,9 +509,26 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual([call.args[2] for call in run_stage.call_args_list],
                          ["schema_setup", "ingestion", "verification"])
         self.assertEqual(cli.load()["semantic_model_id"], "model-id")
-        self.ensure_large_storage.assert_called_once_with(TENANT, WORKSPACE, "model-id")
+        self.verify_model.assert_called_once_with(TENANT, state, cli.save)
         cli.deploy(api, cli.load(), TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
         api.create.assert_called_once()
+
+    def test_model_verification_failure_never_marks_deployment_verified(self):
+        state = self.state()
+        state.update(connection_id=CONNECTION, semantic_model_id=NOTEBOOK)
+        state["completed"] = ["schema_setup", "ingestion", "verification"]
+        cli.save(state)
+        api = Mock()
+        api.request.return_value = response({
+            "description": state["marker"], "capacityId": CAPACITY,
+            "displayName": state["connection_name"],
+        })
+        self.verify_model.side_effect = DeploymentError("Model refresh Failed")
+        with patch("fabric_test_drive.cli.ensure_item", return_value=NOTEBOOK):
+            with self.assertRaisesRegex(DeploymentError, "Model refresh Failed"):
+                cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
+        self.assertFalse(cli.load()["verified"])
+        self.assertEqual(cli.load()["completed"], ["schema_setup", "ingestion", "verification"])
 
     @patch("fabric_test_drive.cli.run_stage")
     def test_failed_model_creation_preserves_data_stages_and_blocks_blind_retry(self, run_stage):
@@ -709,6 +726,20 @@ class DeploymentTests(unittest.TestCase):
         ]
         with patch("builtins.input", return_value=state["workspace_name"]):
             with self.assertRaisesRegex(DeploymentError, "still running"):
+                cli.cleanup(api, state)
+        api.delete.assert_not_called()
+
+    @patch("fabric_test_drive.cli.refresh_status")
+    def test_running_model_refresh_prevents_cleanup(self, refresh_status):
+        state = self.state()
+        state.update(semantic_model_id=NOTEBOOK, model_refresh_id=SETUP)
+        api = Mock()
+        api.request.return_value = response({
+            "description": state["marker"], "capacityId": CAPACITY,
+        })
+        refresh_status.return_value = response({"status": "Unknown"}, status=202)
+        with patch("builtins.input", return_value=state["workspace_name"]):
+            with self.assertRaisesRegex(DeploymentError, "model refresh is still running"):
                 cli.cleanup(api, state)
         api.delete.assert_not_called()
 
