@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 import requests
 
-from .api import DeploymentError, Fabric, login
+from .api import DeploymentError, Fabric, FabricApiError, login
 from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
 
 STATE = Path(".fabric-test-drive/state.json")
@@ -285,7 +285,14 @@ def cleanup(api, state):
             "Reconcile it in Fabric and deployment state before cleanup."
         )
     if "workspace_id" in state and not state.get("workspace_deleted"):
-        owned_workspace(api, state)
+        try:
+            owned_workspace(api, state)
+        except FabricApiError as exc:
+            if exc.status_code != 404 or exc.error_code != "WorkspaceNotFound":
+                raise
+            state["workspace_deleted"] = True
+            save(state)
+            print("Recorded workspace was not found; treating it as already deleted.")
     if "connection_id" in state and not state.get("connection_deleted"):
         connection = api.request("GET", f"connections/{state['connection_id']}").json()
         if connection["displayName"] != state["connection_name"]:
