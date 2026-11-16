@@ -38,8 +38,10 @@ subscription is required by the launcher when using an already available capacit
 
 ## Quick start: run in your browser
 
-1. Select **Open in GitHub Codespaces** above and create a Codespace from `main`.
-   Wait for setup to finish; it installs Python dependencies and Azure CLI.
+1. On the [Test Drive repository](https://github.com/rosscouldrey/Test-Drive-Microsoft-Fabric),
+   select **Use this template → Open in a codespace**. Alternatively, use the
+   **Open in GitHub Codespaces** badge above. Wait for setup to finish; it installs
+   Python dependencies and Azure CLI.
 2. In the Codespace terminal, preview the deployment and then start it:
 
    ```bash
@@ -67,6 +69,21 @@ subscription is required by the launcher when using an already available capacit
 Preflight checks API access, connection metadata, and the public Northwind service
 before the first write. It cannot guarantee workspace creation permission,
 connector execution, or all tenant-policy requirements.
+
+### Want your own copy?
+
+Select **Use this template → Create a new repository** on the Test Drive
+repository to create an independent copy in your GitHub account or organization.
+Then open a Codespace from your new repository and follow steps 2–6 above. This
+option is useful if you want to customize and keep the code; your repository
+does not automatically receive later changes from this template.
+
+**Open in a codespace** lets you try the template without first creating a
+repository; you can publish your code to a new repository later if you wish.
+Neither option deploys Fabric automatically—you still run the commands above.
+Publishing code does **not** preserve the gitignored deployment state or Azure CLI
+sign-in cache. Keep the original Codespace and `.fabric-test-drive/state.json`
+until you have cleaned up the Fabric resources.
 
 ### What gets created
 
