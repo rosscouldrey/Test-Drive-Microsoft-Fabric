@@ -59,7 +59,7 @@ def export_report(api, workspace, report, destination):
         target.write_bytes(content)
     print(f"Exported {len(files)} report definition files to {destination}.")
     print("Inspect definition.pbir for the semantic-model reference before committing.")
-    print("This exports definitions only; report deployment and model rebinding are not implemented.")
+    print("This command exports definitions only; deploy uses the template and rebinds its model.")
 
 
 def main(argv=None):

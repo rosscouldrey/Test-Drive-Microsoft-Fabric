@@ -10,6 +10,7 @@ import requests
 from .api import DeploymentError, Fabric, FabricApiError, PowerBI, login
 from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
 from .model import model_definition, refresh_status, verify_model
+from .report import report_definition, verify_report
 
 STATE = Path(".fabric-test-drive/state.json")
 
@@ -275,12 +276,21 @@ def deploy(api, state, tenant, capacity, name, types):
         definition = model_definition(workspace, lakehouse)
         ensure_item(api, state, "semantic_model_id", "SemanticModel", "Northwind Model", definition)
     verify_model(tenant, state, save)
+    if "report_id" in state:
+        ensure_item(api, state, "report_id", "Report", "Northwind Report")
+    else:
+        ensure_item(
+            api, state, "report_id", "Report", "Northwind Report",
+            report_definition(state["semantic_model_id"]),
+        )
+    verify_report(tenant, state)
     state["verified"] = True
     save(state)
     print(f"\nData spike verified: https://app.fabric.microsoft.com/groups/{workspace}/list")
     print("Eight bronze source tables and five gold tables passed notebook assertions.")
     print("Semantic model refresh completed; Total Sales and Order Count returned positive values.")
-    print("Report deployment is NOT implemented.")
+    print(f"Report: https://app.powerbi.com/groups/{workspace}/reports/{state['report_id']}")
+    print("Report binding verified. Open it to check visual rendering and interactions.")
 
 
 def cleanup(api, state):
@@ -345,7 +355,7 @@ def main(argv=None):
         print("Create workspace -> schema-enabled lakehouse -> bronze and gold schemas")
         print(f"Copy {len(ENTITIES)} entities to bronze -> notebook builds five gold tables")
         print("Create semantic model -> large storage -> refresh with retries -> verify Sales and Orders")
-        print("No report yet.")
+        print("Create report bound to semantic model -> verify report binding")
         print("No capacity provisioning. No writes in plan/preflight.")
         return 0
     try:

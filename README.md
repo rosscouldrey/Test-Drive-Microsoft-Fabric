@@ -9,7 +9,8 @@ NYTaxi is a future scenario.
 The goal is a browser-launched, populated Fabric workspace with a sales model
 and report. The original data deployment path has passed in a live Fabric tenant.
 The schema-enabled bronze/gold and semantic model deployment is awaiting live
-tenant verification. Report authoring is planned separately.
+tenant verification. Report deployment is experimental; visual rendering must
+be checked in Fabric.
 
 ## What this increment creates
 
@@ -22,6 +23,7 @@ tenant verification. Report authoring is planned separately.
 | `Ingest Northwind` pipeline | Sequential Copy activities using the OData connector into bronze |
 | `Verify Northwind` PySpark notebook | Checks populated tables, order-detail joins, persisted sales rows, and a sales aggregation |
 | `Northwind Model` semantic model | Exported Direct Lake model rebound to the new lakehouse |
+| `Northwind Report` report | Authored report rebound to the deployment's semantic model |
 
 Source entities: Customers, Orders, Order_Details, Products, Categories,
 Employees, Suppliers, and Shippers.
@@ -29,7 +31,7 @@ OData `$select` projections exclude the binary `Categories.Picture` and
 `Employees.Photo` fields, which are unsupported by this Copy path. Other scalar
 fields are retained; source images are not part of this demo.
 
-**Not implemented:** Power BI report, hosted
+**Not implemented:** hosted
 web wizard, capacity creation, and unattended GitHub Actions deployment.
 The deployment reports data-stage success only after the pipeline and
 assertion-bearing notebook jobs complete.
@@ -100,6 +102,8 @@ The terminal prints the workspace link.
 Notebook execution errors fail the deployment rather than showing success.
 The model must also finish refreshing and return positive `Total Sales` and
 `Order Count` values through a DAX query before deployment reports success.
+The report is then created and its dataset ID checked against the recorded model.
+Visual rendering and report interactions are not checked automatically.
 
 ### Explore the model in Fabric
 
@@ -166,8 +170,7 @@ git push -u origin add-northwind-model
 Existing export directories are never overwritten. For subsequent exports, use
 `--output templates/Northwind.SemanticModel-new`, review it, then replace the old
 directory with the new one (including removing stale definition files).
-The model deployment below uses this exported template. Report deployment and
-rebinding are not implemented.
+The model deployment below uses this exported template.
 
 ### Export your manually authored report
 
@@ -197,9 +200,16 @@ git commit -m "Add Northwind report definition"
 git push -u origin add-northwind-report
 ```
 
-The report reference may point to the current workspace's semantic model.
-Rebinding that reference when creating a report in a new deployment is a
-separate implementation step.
+Deployment replaces the report's `definition.pbir` dataset reference with
+`semanticmodelid=<new-model-id>`; it does not retain the authored workspace name,
+catalog, or model ID. Other definition parts, including visuals and static
+resources, are preserved. The exported `.platform` identity is not deployed.
+After model refresh and DAX verification, the launcher creates `Northwind Report`,
+saves its ID for safe resume, and checks its live Power BI `datasetId`.
+A recorded report is reused, not overwritten with template changes. If its
+binding differs, deployment stops for inspection rather than silently rebinding it.
+Open the printed report URL to check all pages, visuals, filters, and interactions.
+Fresh live report deployment has not yet been verified.
 
 ### Test the exported model in a new deployment
 

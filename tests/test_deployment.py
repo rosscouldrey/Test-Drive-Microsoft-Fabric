@@ -20,6 +20,8 @@ CONNECTION = "55555555-5555-5555-5555-555555555555"
 PIPELINE = "66666666-6666-6666-6666-666666666666"
 NOTEBOOK = "77777777-7777-7777-7777-777777777777"
 SETUP = "88888888-8888-8888-8888-888888888888"
+MODEL = "99999999-9999-9999-9999-999999999999"
+REPORT = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
 CONNECTION_TYPES = [{
     "type": "OData",
     "creationMethods": [{
@@ -333,6 +335,9 @@ class DeploymentTests(unittest.TestCase):
         storage_patch = patch("fabric_test_drive.cli.verify_model")
         self.verify_model = storage_patch.start()
         self.addCleanup(storage_patch.stop)
+        report_patch = patch("fabric_test_drive.cli.verify_report")
+        self.verify_report = report_patch.start()
+        self.addCleanup(report_patch.stop)
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.state_path = Path(self.directory.name) / "state.json"
@@ -396,14 +401,15 @@ class DeploymentTests(unittest.TestCase):
         api.list.return_value = []
         api.create.side_effect = [
             {"id": WORKSPACE}, {"id": LAKEHOUSE}, {"id": CONNECTION},
-            {"id": PIPELINE}, {"id": NOTEBOOK}, {"id": SETUP}, {"id": "model-id"},
+            {"id": PIPELINE}, {"id": NOTEBOOK}, {"id": SETUP}, {"id": MODEL}, {"id": REPORT},
         ]
         items = {
             LAKEHOUSE: ("Lakehouse", "Northwind"),
             PIPELINE: ("DataPipeline", "Ingest Northwind"),
             NOTEBOOK: ("Notebook", "Verify Northwind"),
             SETUP: ("Notebook", "Initialize Schemas"),
-            "model-id": ("SemanticModel", "Northwind Model"),
+            MODEL: ("SemanticModel", "Northwind Model"),
+            REPORT: ("Report", "Northwind Report"),
         }
 
         def get(method, path):
@@ -442,7 +448,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertEqual([call.args[1] for call in api.run.call_args_list], [SETUP, PIPELINE, NOTEBOOK])
         attempt["fail"] = False
         cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
-        self.assertEqual(api.create.call_count, 7)
+        self.assertEqual(api.create.call_count, 8)
         self.assertEqual(api.run.call_count, 4)
         api.update_definition.assert_called_once_with(
             WORKSPACE, NOTEBOOK, notebook(WORKSPACE, LAKEHOUSE),
@@ -450,7 +456,7 @@ class DeploymentTests(unittest.TestCase):
         self.assertTrue(cli.load()["verified"])
         self.assertEqual(api.run.call_args.args[2], "RunNotebook")
         cli.deploy(api, cli.load(), TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
-        self.assertEqual(api.create.call_count, 7)
+        self.assertEqual(api.create.call_count, 8)
         self.assertEqual(api.run.call_count, 7)
         self.assertEqual(
             api.update_definition.call_args.args,
@@ -483,7 +489,8 @@ class DeploymentTests(unittest.TestCase):
             PIPELINE: ("DataPipeline", "Ingest Northwind"),
             NOTEBOOK: ("Notebook", "Verify Northwind"),
             SETUP: ("Notebook", "Initialize Schemas"),
-            "model-id": ("SemanticModel", "Northwind Model"),
+            MODEL: ("SemanticModel", "Northwind Model"),
+            REPORT: ("Report", "Northwind Report"),
         }
 
         def request(method, path):
@@ -499,19 +506,24 @@ class DeploymentTests(unittest.TestCase):
         def create(path, body):
             self.assertEqual(run_stage.call_count, 3)
             self.assertEqual(run_stage.call_args.args[2], "verification")
-            return {"id": "model-id"}
+            if body["type"] == "Report":
+                self.verify_model.assert_called_once_with(TENANT, state, cli.save)
+                return {"id": REPORT}
+            return {"id": MODEL}
 
         api.create.side_effect = create
         cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
-        body = api.create.call_args.args[1]
+        body = api.create.call_args_list[0].args[1]
         self.assertEqual(body["type"], "SemanticModel")
         self.assertEqual(body["definition"]["format"], "TMDL")
         self.assertEqual([call.args[2] for call in run_stage.call_args_list],
                          ["schema_setup", "ingestion", "verification"])
-        self.assertEqual(cli.load()["semantic_model_id"], "model-id")
+        self.assertEqual(cli.load()["semantic_model_id"], MODEL)
+        self.assertEqual(cli.load()["report_id"], REPORT)
         self.verify_model.assert_called_once_with(TENANT, state, cli.save)
+        self.verify_report.assert_called_once_with(TENANT, state)
         cli.deploy(api, cli.load(), TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
-        api.create.assert_called_once()
+        self.assertEqual(api.create.call_count, 2)
 
     def test_model_verification_failure_never_marks_deployment_verified(self):
         state = self.state()
@@ -529,6 +541,33 @@ class DeploymentTests(unittest.TestCase):
                 cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
         self.assertFalse(cli.load()["verified"])
         self.assertEqual(cli.load()["completed"], ["schema_setup", "ingestion", "verification"])
+
+    def test_report_binding_failure_preserves_id_and_never_marks_verified(self):
+        state = self.state()
+        state.update(connection_id=CONNECTION, semantic_model_id=MODEL)
+        state["completed"] = [
+            "schema_setup", "ingestion", "verification", "model_refresh", "model_query",
+        ]
+        cli.save(state)
+        api = Mock()
+        api.request.return_value = response({
+            "description": state["marker"], "capacityId": CAPACITY,
+            "displayName": state["connection_name"],
+        })
+        self.verify_report.side_effect = DeploymentError("Report is not bound")
+
+        def ensure(api, state, key, kind, name, content=None, **kwargs):
+            state[key] = REPORT if key == "report_id" else state.get(key, NOTEBOOK)
+            cli.save(state)
+            return state[key]
+
+        with patch("fabric_test_drive.cli.ensure_item", side_effect=ensure):
+            with self.assertRaisesRegex(DeploymentError, "not bound"):
+                cli.deploy(api, state, TENANT, CAPACITY, "Northwind Test", CONNECTION_TYPES)
+        saved = cli.load()
+        self.assertEqual(saved["report_id"], REPORT)
+        self.assertFalse(saved["verified"])
+        self.assertIn("model_query", saved["completed"])
 
     @patch("fabric_test_drive.cli.run_stage")
     def test_failed_model_creation_preserves_data_stages_and_blocks_blind_retry(self, run_stage):
