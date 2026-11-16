@@ -1,355 +1,198 @@
 # Microsoft Fabric Test Drive
 
+Deploy a ready-to-explore Northwind sales environment into your Microsoft Fabric
+tenant: sample data, bronze and gold lakehouse tables, a Direct Lake semantic
+model, and a Power BI report.
+
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/rosscouldrey/Test-Drive-Microsoft-Fabric?quickstart=1)
 
-**Status: experimental deployment spike, not a finished one-click solution.**
-The first scenario uses Northwind through Fabric's actual OData connector.
-NYTaxi is a future scenario.
+**A guided demo, not a production deployment framework.** The complete deployment
+has been exercised in a live Fabric tenant, including report rendering. Results
+depend on your tenant policies, permissions, capacity, and the public sample
+service. Fabric capacity and GitHub Codespaces usage can incur charges.
 
-The goal is a browser-launched, populated Fabric workspace with a sales model
-and report. The original data deployment path has passed in a live Fabric tenant.
-The schema-enabled bronze/gold and semantic model deployment is awaiting live
-tenant verification. Report deployment is experimental; visual rendering must
-be checked in Fabric.
+## Before you start
 
-## What this increment creates
-
-| Object | Purpose |
-| --- | --- |
-| A new workspace on your existing capacity | Isolated demo environment |
-| `Northwind` lakehouse | Schema-enabled lakehouse with eight `bronze` tables and five `gold` tables |
-| Anonymous cloud OData connection | Public Northwind service; no source credentials |
-| `Initialize Schemas` notebook | Creates the bronze and gold schemas before ingestion |
-| `Ingest Northwind` pipeline | Sequential Copy activities using the OData connector into bronze |
-| `Verify Northwind` PySpark notebook | Checks populated tables, order-detail joins, persisted sales rows, and a sales aggregation |
-| `Northwind Model` semantic model | Exported Direct Lake model rebound to the new lakehouse |
-| `Northwind Report` report | Authored report rebound to the deployment's semantic model |
-
-Source entities: Customers, Orders, Order_Details, Products, Categories,
-Employees, Suppliers, and Shippers.
-OData `$select` projections exclude the binary `Categories.Picture` and
-`Employees.Photo` fields, which are unsupported by this Copy path. Other scalar
-fields are retained; source images are not part of this demo.
-
-**Not implemented:** hosted
-web wizard, capacity creation, and unattended GitHub Actions deployment.
-The deployment reports data-stage success only after the pipeline and
-assertion-bearing notebook jobs complete.
-
-## Prerequisites and costs
+You need:
 
 - A GitHub account with Codespaces access and available allowance or billing.
-- A Microsoft account in an Entra tenant with Fabric enabled, the required
-  Fabric/Power BI entitlement, permission to create workspaces, and permission
-  to assign one to an existing supported, active Fabric capacity.
-- Tenant policies that permit Azure CLI delegated sign-in and the required
-  Fabric APIs. Device-code authentication may be blocked by Conditional Access.
-  Administrator consent may be required; this launcher does not bypass policy.
-- Power BI API access to update and refresh the semantic model, Build/read access
-  for its DAX check, and the tenant's **Dataset Execute Queries REST API** setting
-  enabled. The deployment account must own the model and be able to read its source tables.
-- Outbound access to Fabric, Power BI APIs, Microsoft sign-in, and `services.odata.org`.
+- A Microsoft Entra tenant with Fabric enabled, the required Fabric/Power BI
+  entitlement, and permission to create workspaces and assign them to an
+  **existing, active capacity that supports Fabric lakehouses, Spark, and Power BI**.
+  Power BI Premium Per User alone is not sufficient. A Fabric trial is an option
+  only if your tenant and account are eligible.
+- Your **tenant ID** (a UUID), available in the Microsoft Entra admin center
+  under Identity > Overview. Ask your administrator if you cannot find it.
+- Tenant policies allowing Azure CLI delegated device-code sign-in, Fabric and
+  Power BI APIs, and the **Dataset Execute Queries REST API** tenant setting.
+  Administrator consent may be required.
+- Permission for the deployment account to own, update, refresh, and query the
+  semantic model and read its lakehouse tables. The launcher creates the workspace
+  with that account; do not remove its access while deployment runs.
+- Network access to Microsoft sign-in, Fabric, Power BI APIs, and
+  `https://services.odata.org`.
 
-No Azure subscription is required by the launcher when using an already
-available Fabric capacity, but the capacity must support the deployed workloads.
-A trial capacity is an option only if your tenant and account are eligible.
-Fabric workloads and Codespaces can incur charges. Deleting the workspace
-does **not** stop capacity billing.
+The launcher uses your existing capacity; it does not provision one. No Azure
+subscription is required by the launcher when using an already available capacity.
+**Deleting the demo workspace does not stop capacity billing.**
 
-## Launch
+## Quick start: run in your browser
 
-1. Select **Open in GitHub Codespaces** above and create the Codespace.
-2. Wait for the dev container to finish installing Python dependencies and Azure CLI.
-3. In the terminal, run:
+1. Select **Open in GitHub Codespaces** above and create a Codespace from `main`.
+   Wait for setup to finish; it installs Python dependencies and Azure CLI.
+2. In the Codespace terminal, preview the deployment and then start it:
 
    ```bash
    .venv/bin/fabric-test-drive plan
    .venv/bin/fabric-test-drive deploy
    ```
 
-4. Enter your **tenant UUID**, complete the Microsoft device-code sign-in, select
-   an accessible active capacity, enter a new workspace name, and confirm.
+3. Enter your tenant UUID and complete the Microsoft device-code sign-in.
+   Only enter the displayed code at Microsoft's sign-in page for a session you
+   initiated. The launcher never asks you to paste a password or access token.
+4. Choose the number of a supported active capacity, enter a **new workspace
+   name**, and type the exact word **`deploy`** at the confirmation prompt:
 
-Only enter the displayed device code at Microsoft's sign-in page for a session
-you initiated. The launcher never asks you to paste an access token or password.
-Preflight checks happen before the first Fabric write. It checks API access,
-the advertised OData connection creation contract, and a sample Northwind read;
-it cannot prove workspace creation rights or actual connector execution.
+   ```text
+   New workspace name: Northwind Test Drive
+   Type deploy to continue: deploy
+   ```
 
-The connection request uses the encryption setting advertised by the connector:
-`Encrypted` when available, otherwise `NotEncrypted` if supported. The OData
-connector can advertise only `NotEncrypted`; that API setting does not change
-the configured source URL. Northwind remains anonymous and uses a fixed HTTPS
-URL, and the launcher refuses an HTTP source.
+5. Leave the terminal running. Schema setup, ingestion, Spark verification, model
+   initialization, and refresh can take several minutes or longer depending on
+   capacity availability. **You should not need to refresh the model manually.**
+6. When deployment completes, open the printed **Report** link. Explore each
+   page, try the filters, and check that visuals display data.
 
-To run the read-only checks separately:
+Preflight checks API access, connection metadata, and the public Northwind service
+before the first write. It cannot guarantee workspace creation permission,
+connector execution, or all tenant-policy requirements.
 
-```bash
-.venv/bin/fabric-test-drive preflight --tenant <tenant-uuid>
+### What gets created
+
+```text
+Public Northwind OData service
+  -> Fabric Copy pipeline
+  -> Northwind lakehouse: bronze source tables -> gold star schema
+  -> Northwind Model: Direct Lake relationships and measures
+  -> Northwind Report: sales analysis
 ```
 
-For an existing, correctly authenticated Azure CLI session, add `--skip-login`.
-Optional deployment arguments are `--tenant`, `--capacity`, and `--name`;
-confirmation is still required for a new deployment.
-
-### Expected successful result
-
-The workspace has eight nonempty source tables in `bronze` and a star schema in
-`gold`. The
-notebook verifies unique/non-null gold keys, persisted row counts, every sale's
-dimension matches, and a positive revenue aggregation.
-The terminal prints the workspace link.
-Notebook execution errors fail the deployment rather than showing success.
-The model must also finish refreshing and return positive `Total Sales` and
-`Order Count` values through a DAX query before deployment reports success.
-The report is then created and its dataset ID checked against the recorded model.
-Visual rendering and report interactions are not checked automatically.
-
-### Explore the model in Fabric
-
-Use the `gold` schema's tables in your model. A rerun of a schema-enabled
-deployment consumes capacity and overwrites demo tables.
-
-Use these many-to-one, single-direction relationships (dimensions filter sales):
-
-| Fact column | Dimension key |
+| Resource | Purpose |
 | --- | --- |
-| `gold.fact_sales.customer_id` | `gold.dim_customer.customer_id` |
-| `gold.fact_sales.product_id` | `gold.dim_product.product_id` |
-| `gold.fact_sales.employee_id` | `gold.dim_employee.employee_id` |
-| `gold.fact_sales.order_date` | `gold.dim_date.date` |
+| New workspace | Isolated demo on your selected capacity |
+| `Northwind` lakehouse | Eight bronze source tables and five gold tables |
+| Anonymous OData connection | Reads the public HTTPS Northwind source |
+| `Initialize Schemas` notebook | Creates the bronze and gold schemas |
+| `Ingest Northwind` pipeline | Copies source data using Fabric's OData connector |
+| `Verify Northwind` notebook | Builds gold tables and checks rows, keys, joins, and sales |
+| `Northwind Model` | Direct Lake model bound to this deployment's lakehouse |
+| `Northwind Report` | Authored report bound to this deployment's model |
 
-`fact_sales` has one row per order/product pair. Product includes category and
-supplier names; customer includes company/city/country; employee includes name
-and title. The date dimension covers every day from the first to last order.
-Mark it as a date table, sort `month` by `month_number`, and use `year_month` for
-a chronological sales trend.
+The gold tables are `fact_sales`, `dim_customer`, `dim_product`, `dim_employee`,
+and `dim_date`. The model includes sales, order, quantity, and time-intelligence
+measures. Northwind is public sample data, not your organization's data.
+Source images and binary fields are excluded.
 
-The exported model includes sales, order, quantity, and time-intelligence measures.
+**Deployment succeeds only after** the notebooks complete, a model refresh
+finishes, `Total Sales` and `Order Count` return positive DAX results, and the
+report's model binding is verified. Visual rendering and every measure or report
+interaction are not automatically tested; check the report in Fabric.
 
-### Export your manually authored semantic model
+## Sign-in, retries, and separate environments
 
-From the repository directory, export the model's definition as readable TMDL
-files using your existing Azure CLI sign-in:
-
-```bash
-.venv/bin/python -m fabric_test_drive.export_model --model <semantic-model-uuid>
-```
-
-Find the semantic model UUID in its Fabric URL (the `dataset` ID, not the report
-ID), or list the workspace's semantic models using Fabric's
-`GET /v1/workspaces/{workspaceId}/semanticModels` API.
-Tenant and workspace IDs default to `.fabric-test-drive/state.json`. To export
-from another workspace, or without local deployment state, specify both:
-
-```bash
-.venv/bin/python -m fabric_test_drive.export_model \
-  --tenant <tenant-uuid> --workspace <workspace-uuid> --model <semantic-model-uuid>
-```
-
-The script calls
-`POST /v1/workspaces/{workspaceId}/semanticModels/{semanticModelId}/getDefinition?format=TMDL`,
-waits for asynchronous exports, and decodes each definition part into
-`templates/Northwind.SemanticModel/`. It does not change the model, deploy
-resources, or modify deployment state. If authentication has expired, run
-`az login --tenant <tenant-uuid> --use-device-code --allow-no-subscriptions`
-and retry. The signed-in account needs permission to read the model definition.
-
-Review the exported files for sensitive values and environment-specific data
-source references before committing. Definitions are exported, not table data.
-For example:
-
-```bash
-git switch -c add-northwind-model
-git add templates/Northwind.SemanticModel
-git diff --cached
-git commit -m "Add authored Northwind semantic model"
-git push -u origin add-northwind-model
-```
-
-Existing export directories are never overwritten. For subsequent exports, use
-`--output templates/Northwind.SemanticModel-new`, review it, then replace the old
-directory with the new one (including removing stale definition files).
-The model deployment below uses this exported template.
-
-### Export your manually authored report
-
-From the deployment directory that contains the report's workspace state, run:
-
-```bash
-.venv/bin/python -m fabric_test_drive.export_report \
-  --report b2c86882-8324-4711-934e-054bf4ed9a3f
-```
-
-Tenant and workspace IDs default to `.fabric-test-drive/state.json`; use
-`--tenant` and `--workspace` if the report is in a different workspace or there
-is no local state. The exporter calls Fabric's
-`POST /v1/workspaces/{workspaceId}/reports/{reportId}/getDefinition`, waits for
-long-running exports, and writes the PBIR or PBIR-Legacy definition files into
-`templates/Northwind.Report/`. It does not modify the report. An existing output
-directory is never overwritten; choose another `--output` path for later exports.
-
-Review the report definition, especially `definition.pbir` and its semantic
-model reference, before committing:
-
-```bash
-git switch -c add-northwind-report
-git add templates/Northwind.Report
-git diff --cached
-git commit -m "Add Northwind report definition"
-git push -u origin add-northwind-report
-```
-
-Deployment replaces the report's `definition.pbir` dataset reference with
-`semanticmodelid=<new-model-id>`; it does not retain the authored workspace name,
-catalog, or model ID. Other definition parts, including visuals and static
-resources, are preserved. The exported `.platform` identity is not deployed.
-After model refresh and DAX verification, the launcher creates `Northwind Report`,
-saves its ID for safe resume, and checks its live Power BI `datasetId`.
-A recorded report is reused, not overwritten with template changes. If its
-binding differs, deployment stops for inspection rather than silently rebinding it.
-Open the printed report URL to check all pages, visuals, filters, and interactions.
-Fresh live report deployment has not yet been verified.
-
-### Test the exported model in a new deployment
-
-Deployment creates `Northwind Model` after the gold tables pass
-their checks, replacing the template's OneLake workspace and lakehouse IDs with
-the new deployment's IDs. This is experimental and has not been validated in a
-fresh end-to-end live deployment. It also sets the model's target storage mode to
-`PremiumFiles` through the Power BI API. Live troubleshooting showed that the
-target storage setting alone does not establish readiness: an initial refresh
-could fail while a subsequent refresh and DAX query succeeded.
-
-The launcher now waits for the target storage setting, starts a transactional
-full refresh with up to two service-side retries (five minutes per attempt),
-and polls the recorded refresh until completion. It then executes a DAX query
-and requires positive `Total Sales` and `Order Count` values. It never treats a
-failed refresh or HTTP 200 response containing query errors as success.
-This automatic readiness flow still needs fresh live-tenant verification.
-
-Use a separate clone or Codespace so the original workspace and its state remain
-untouched. In that new directory, install the package as under Local development
-and run:
+To reuse a valid Azure CLI session:
 
 ```bash
 .venv/bin/fabric-test-drive deploy --skip-login
 ```
 
-Select a capacity, enter a **new workspace name**, and type `deploy` to confirm.
-A recorded model is reused, not updated from subsequent template edits. Manual
-refresh should not be necessary. After deployment succeeds, you can independently
-run the same DAX check in Fabric:
+If authentication expires, run without `--skip-login`. Tenant policies may still
+require reauthentication.
 
-```DAX
-EVALUATE ROW("Sales", [Total Sales], "Orders", [Order Count])
-```
+If deployment stops, **preserve `.fabric-test-drive/state.json`** and rerun from
+the **same directory**. The launcher reuses recorded resources and completed
+stages and resumes recorded jobs. Inspect the error first; permission or
+configuration failures require correction.
 
-Additional manual checks should test dimensions filtering sales and the date
-measures; the automated query does not validate every measure or relationship.
-Keep the new directory's state for resuming or guarded cleanup.
+A rerun after a successful deployment overwrites the demo's bronze and gold
+tables and refreshes the model. Recorded models and reports are reused, not
+overwritten with later template edits.
 
-## Resume and cleanup
+Each checkout directory tracks **one deployment**. To create another environment,
+use a separate clone or Codespace and a different workspace name. Do not delete
+or edit state to switch environments.
 
-**Existing non-schema deployments cannot be converted in place.** This version
-refuses to deploy over their saved state and never automatically deletes them.
-Keep the old directory and state if you want to retain the workspace. To create
-a separate schema-enabled workspace, use a fresh clone/directory, install the
-package as shown under Local development, and deploy with a new workspace name.
-Alternatively, if you no longer need anything in the old workspace, run the
-guarded `cleanup` command from its original directory before deploying again.
-Cleanup deletes the entire recorded workspace and connection.
+**Keep the directory and its state until cleanup is complete.** Closing a
+Codespace does not delete Fabric resources. Deleting the Codespace can lose the
+state needed for guarded cleanup. State contains resource identifiers, not access
+tokens; it is gitignored and must not be committed.
 
-Run the same `deploy` command from the same directory to resume. Resource IDs
-and job URLs are saved in the gitignored `.fabric-test-drive/state.json`.
-Already-recorded items are reused, pending jobs are polled, and failed jobs can
-be retried on the next invocation. A fully successful deployment is rerunnable:
-the next run overwrites the bronze and gold tables.
-Before starting a new run of an existing ingestion pipeline, the launcher updates
-its definition from the checked-out code. Active runs are polled without changing
-their definition, and completed stages in an interrupted deployment are reused.
-The verification notebook definition is also updated before a new verification
-run; the schema-initialization notebook is reused.
-Model refresh IDs and completed refresh/query stages are saved separately.
-An interrupted deployment polls the same refresh rather than submitting another.
-If the refresh fails after its service retries, inspect its error in refresh
-history before rerunning `deploy`; the next invocation can retry a known failed
-refresh without repeating completed data stages. A timeout preserves the refresh
-ID so it can be polled on resume. The refresh wait is bounded to 30 minutes per
-invocation. A completed refresh is not repeated just because query verification
-fails (for example, because Execute Queries is disabled).
+## Delete the demo
 
-**Keep this state file until cleanup is complete.** Closing a Codespace does
-not delete Fabric objects; deleting the Codespace can lose cleanup state.
-The state file contains identifiers, not access tokens. Do not commit it.
-If a create request succeeds on the server but its response is lost, the script
-does not blindly retry it or adopt an object by name. Inspect Fabric and remove
-any unrecorded resource manually before retrying. An unresolved create leaves a
-`pending_create` entry in the state file and blocks further writes and cleanup.
-After verifying that the attempted resource is absent (and removing it if
-necessary), remove only that entry from the state file to allow another attempt.
-Never clear it while an asynchronous creation may still be running.
-An ambiguous job submission similarly leaves `pending_job`. Check the item's run
-history, wait for or cancel any run, then remove that entry before retrying.
-Do not delete the state file to work around an unresolved operation.
-Long-running Fabric operations are polled by their `x-ms-operation-id` on
-`api.fabric.microsoft.com`; the access token is never sent to other hosts, even
-when Fabric returns a regional `Location` header. Power BI refreshes are polled
-on `api.powerbi.com` by their `x-ms-request-id` when available, without sending
-the token to a regional `Location` host.
+From the deployment's original directory:
 
 ```bash
-.venv/bin/fabric-test-drive cleanup
+.venv/bin/fabric-test-drive cleanup --skip-login
+```
+
+Check the workspace name, then type that exact name to confirm.
+**This deletes the entire recorded workspace**, including models, reports, or
+other content you added manually, and the deployment's OData connection.
+Export anything you want to keep first. Do not share that connection with other
+workspaces.
+
+Cleanup checks ownership and refuses while a recorded job or model refresh is
+active. If the workspace was manually deleted, an explicit `WorkspaceNotFound`
+response is treated as already deleted and connection cleanup continues. Other
+errors stop cleanup for inspection.
+
+Cleanup never deletes or pauses the capacity. Manage capacity costs separately.
+When finished with the Codespace, sign out:
+
+```bash
 az logout
 ```
 
-Cleanup checks the workspace's deployment marker and recorded connection name,
-requires typing the workspace name, and refuses while a recorded job is active.
-This includes a recorded semantic model refresh.
-It deletes the **entire recorded workspace**, including anything you subsequently
-added, and the connection created by this deployment. Do not share that connection
-with other workspaces. It never deletes or pauses a capacity. If Fabric reports
-that the recorded workspace was not found, cleanup records it as already deleted
-and continues with the connection. Other workspace errors, a missing connection,
-or failed ownership checks stop cleanup for inspection.
+## Run locally or provide IDs explicitly
 
-Azure CLI maintains a local authentication cache. Use a private Codespace,
-sign out when finished, and do not expose its terminal or authentication cache.
-This project does not store a deployment client secret in GitHub.
-
-## Local development
-
-Python 3.11+ is required. Azure CLI is needed only for tenant operations.
+Use Python 3.11+, Git, and Azure CLI on Linux, macOS, or WSL. Run from the
+repository checkout so the launcher can access the included model/report templates.
 
 ```bash
+git clone https://github.com/rosscouldrey/Test-Drive-Microsoft-Fabric.git
+cd Test-Drive-Microsoft-Fabric
 python -m venv .venv
 .venv/bin/python -m pip install -e .
-.venv/bin/python -m unittest discover -s tests -v
-.venv/bin/fabric-test-drive plan
+.venv/bin/fabric-test-drive deploy
 ```
 
-Tests use simulated API responses and do not create or delete cloud resources.
+You can provide IDs instead of entering them interactively; confirmation is still
+required:
 
-## Delivery gates
+```bash
+.venv/bin/fabric-test-drive deploy \
+  --tenant <tenant-uuid> \
+  --capacity <capacity-uuid> \
+  --name "Northwind Test Drive"
+```
 
-1. **Data-path spike (current):** validate sign-in, OData connection creation,
-   Copy ingestion, notebook attachment, execution, and assertions in a live tenant.
-2. **Golden demo:** add conformed dimensions, a semantic model with sales measures,
-   and a report. Prove deployment and binding without manual edits.
-3. **Repeatability:** validate interrupted runs, cleanup, tenant-policy errors,
-   endpoint readiness, throttling, and deployment from a second clean environment.
-4. **Launch polish:** add screenshots, a walkthrough, and measured deployment time.
-   Introduce NYTaxi only after Northwind passes.
+For read-only checks, use `plan` (no sign-in or API calls) or:
 
-The service is a shared public sample endpoint, not a production availability
-commitment. Source unavailability is a visible failure, never an undisclosed
-switch to bundled data or notebook HTTP ingestion.
+```bash
+.venv/bin/fabric-test-drive preflight --tenant <tenant-uuid>
+```
 
-## References
+`--skip-login` also works with `preflight` and `cleanup`.
 
-- [Fabric workspace creation](https://learn.microsoft.com/en-us/rest/api/fabric/core/workspaces/create-workspace)
-- [Discover supported connection types](https://learn.microsoft.com/en-us/rest/api/fabric/core/connections/list-supported-connection-types)
-- [Create a connection](https://learn.microsoft.com/en-us/rest/api/fabric/core/connections/create-connection)
-- [Fabric OData connector](https://learn.microsoft.com/en-us/fabric/data-factory/connector-odata)
-- [OData Copy activity](https://learn.microsoft.com/en-us/fabric/data-factory/connector-odata-copy-activity)
-- [Northwind OData service](https://services.odata.org/V4/Northwind/Northwind.svc/)
+## Troubleshooting and customization
+
+See [Troubleshooting](docs/troubleshooting.md) for authentication, capacity,
+Northwind availability, model refresh, and interrupted-operation recovery.
+See [Development and customization](docs/development.md) to export your authored
+model/report definitions, change templates, or run the tests.
+
+This project does not create capacities, provide a hosted web wizard, or perform
+unattended GitHub Actions deployment. It uses a public sample service with no
+availability guarantee and does not silently substitute bundled data or another
+ingestion mechanism.

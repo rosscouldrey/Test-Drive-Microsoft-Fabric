@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "fabric-test-drive"
 version = "0.1.0"
-description = "Experimental, guided Northwind deployment for Microsoft Fabric"
+description = "Guided Northwind demo deployment for Microsoft Fabric"
 requires-python = ">=3.11"
 dependencies = ["requests>=2.32.5,<3"]
 

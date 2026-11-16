@@ -286,7 +286,8 @@ def deploy(api, state, tenant, capacity, name, types):
     verify_report(tenant, state)
     state["verified"] = True
     save(state)
-    print(f"\nData spike verified: https://app.fabric.microsoft.com/groups/{workspace}/list")
+    print("\nDeployment complete.")
+    print(f"Workspace: https://app.fabric.microsoft.com/groups/{workspace}/list")
     print("Eight bronze source tables and five gold tables passed notebook assertions.")
     print("Semantic model refresh completed; Total Sales and Order Count returned positive values.")
     print(f"Report: https://app.powerbi.com/groups/{workspace}/reports/{state['report_id']}")
@@ -343,7 +344,7 @@ def cleanup(api, state):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="Experimental Northwind Fabric deployment")
+    parser = argparse.ArgumentParser(description="Deploy the Northwind Microsoft Fabric demo")
     parser.add_argument("command", choices=("plan", "preflight", "deploy", "cleanup"))
     parser.add_argument("--tenant", help="Microsoft Entra tenant UUID")
     parser.add_argument("--capacity", help="Existing active Fabric capacity UUID")
@@ -351,7 +352,7 @@ def main(argv=None):
     parser.add_argument("--skip-login", action="store_true", help="Use an existing Azure CLI session")
     args = parser.parse_args(argv)
     if args.command == "plan":
-        print("EXPERIMENTAL: Northwind deployment feasibility spike")
+        print("Northwind Microsoft Fabric Test Drive deployment plan")
         print("Create workspace -> schema-enabled lakehouse -> bronze and gold schemas")
         print(f"Copy {len(ENTITIES)} entities to bronze -> notebook builds five gold tables")
         print("Create semantic model -> large storage -> refresh with retries -> verify Sales and Orders")
