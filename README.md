@@ -62,7 +62,10 @@ subscription is required by the launcher when using an already available capacit
 
 5. Leave the terminal running. Schema setup, ingestion, Spark verification, model
    initialization, and refresh can take several minutes or longer depending on
-   capacity availability. **You should not need to refresh the model manually.**
+   capacity availability. Refresh runs automatically, but an initial model refresh
+   can fail and prevent report creation. If that happens, follow
+   [Model refresh fails and the report is missing](docs/troubleshooting.md#model-refresh-fails-and-the-report-is-missing):
+   refresh the model in Fabric, wait for success, then rerun deploy from the same directory.
 6. When deployment completes, open the printed **Report** link. Explore each
    page, try the filters, and check that visuals display data.
 
