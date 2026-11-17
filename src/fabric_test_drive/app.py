@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -11,11 +12,16 @@ SOURCE = Path("apps/northwind-fabric-app")
 STAGING = Path(".fabric-test-drive/app")
 
 
-def command(args, *, capture=False):
+def command(args, *, capture=False, api=None, cwd=None):
+    env = os.environ.copy()
+    env.pop("RAYFIN_TOKEN", None)
+    if api is not None:
+        env["RAYFIN_TOKEN"] = api.token()
+        env["RAYFIN_TENANT_ID"] = api.tenant
     try:
         result = subprocess.run(
-            args, cwd=STAGING, text=True, check=False,
-            capture_output=capture,
+            args, cwd=STAGING if cwd is None else cwd, text=True, check=False,
+            capture_output=capture, env=env,
         )
     except FileNotFoundError as exc:
         raise DeploymentError(f"Required command not found: {args[0]}") from exc
@@ -26,8 +32,8 @@ def command(args, *, capture=False):
     return result.stdout if capture else None
 
 
-def json_command(args):
-    output = command(args, capture=True).lstrip()
+def json_command(args, *, api=None):
+    output = command(args, capture=True, api=api).lstrip()
     # Rayfin 1.36.2 writes this authentication notice to stdout even in JSON mode.
     notice = "[rayfin] using ambient token from RAYFIN_TOKEN"
     while output.splitlines() and output.splitlines()[0] == notice:
@@ -41,9 +47,17 @@ def json_command(args):
     return result
 
 
-def prepare():
+def check_prerequisites():
     if not SOURCE.joinpath("rayfin/rayfin.yml").is_file():
         raise DeploymentError("App source not found. Run from the repository root.")
+    version = command(["node", "--version"], capture=True, cwd=SOURCE).strip().lstrip("v").split(".")[0]
+    if version not in {"20", "22", "24"}:
+        raise DeploymentError("The Fabric App requires Node.js 20, 22, or 24; use Node 24.")
+    command(["npm", "--version"], capture=True, cwd=SOURCE)
+
+
+def prepare():
+    check_prerequisites()
     if not STAGING.exists():
         def ignored(_directory, names):
             return {
@@ -54,9 +68,6 @@ def prepare():
         shutil.copytree(SOURCE, STAGING, ignore=ignored)
     if not STAGING.joinpath("package-lock.json").is_file() or not STAGING.joinpath("rayfin/rayfin.yml").is_file():
         raise DeploymentError("The staged app is incomplete; inspect .fabric-test-drive/app before retrying.")
-    version = command(["node", "--version"], capture=True).strip().lstrip("v").split(".")[0]
-    if version not in {"20", "22", "24"}:
-        raise DeploymentError("The Fabric App requires Node.js 20, 22, or 24.")
     installed = STAGING / ".test-drive-npm-installed"
     if not installed.is_file() or not STAGING.joinpath("node_modules/.bin/rayfin").is_file():
         print("Installing the app's locked npm dependencies.")
@@ -83,22 +94,22 @@ def deploy_app(api, state, save):
     if recorded and (not matching or matching[0].get("type") != "AppBackend"):
         raise DeploymentError("The recorded app was not found or has the wrong type.")
     if recorded:
-        raise DeploymentError("The app is already recorded in this deployment; automatic redeployment is not supported.")
+        print("The recorded Fabric App is already deployed; no app changes were made.")
+        return
 
     prepare()
     if STAGING.joinpath("rayfin/.deployments.json").exists():
         raise DeploymentError("An existing Rayfin deployment registry needs inspection before creating an app.")
     rayfin = str(Path("node_modules/.bin/rayfin"))
-    print("Sign in to Rayfin using the same tenant and account as the Test Drive deployment.")
-    command([rayfin, "login", "--tenant", tenant])
+    print("Deploying the app using your existing Azure CLI sign-in.")
     command([
         rayfin, "connector", "add", "--type", "fabric-semanticmodel", "--name", "northwind-model",
         "--workspace-id", workspace, "--item-id", model, "--operations", "executeQuery", "--yes",
-    ])
+    ], api=api)
     for script in ("typecheck", "build", "lint", "test", "validate:visual"):
         command(["npm", "run", script])
     target = [rayfin, "up", "--tenant", tenant, "--workspace-id", workspace, "--item-name", APP_NAME]
-    preview = json_command(target + ["--dry-run", "--json"])
+    preview = json_command(target + ["--dry-run", "--json"], api=api)
     plan = preview.get("plan", {})
     if (preview.get("status") != "dry-run" or preview.get("blocked") is not False
             or plan.get("workspaceId") != workspace or plan.get("workspaceName") != state["workspace_name"]
@@ -109,7 +120,7 @@ def deploy_app(api, state, save):
         raise DeploymentError("App deployment cancelled; no app was deployed.")
     state["pending_app"] = True
     save(state)
-    result = json_command(target + ["--json"])
+    result = json_command(target + ["--json"], api=api)
     deployment = result.get("deployment", {})
     generated = result.get("generate")
     for warning in result.get("warnings", []):

@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 import requests
 
 from .api import DeploymentError, Fabric, FabricApiError, PowerBI, login
-from .app import deploy_app
+from .app import check_prerequisites, deploy_app
 from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
 from .model import model_definition, refresh_status, verify_model
 from .report import report_definition, verify_report
@@ -189,7 +189,7 @@ def run_stage(api, state, name, item, job_type, definition=None):
     save(state)
 
 
-def deploy(api, state, tenant, capacity, name, types):
+def deploy(api, state, tenant, capacity, name, types, with_app=False):
     if state and state.get("pending_job"):
         raise DeploymentError(
             f"Previous job submission has an unresolved outcome: {state['pending_job']}. "
@@ -218,7 +218,11 @@ def deploy(api, state, tenant, capacity, name, types):
             "connection_name": f"Northwind-{identifier}",
             "completed": [], "jobs": {}, "verified": False,
             "lakehouse_layout": "bronze-gold-schemas",
+            "app_requested": with_app,
         }
+        save(state)
+    elif state.get("app_requested", False) != with_app:
+        state["app_requested"] = with_app
         save(state)
     if state.get("verified"):
         state.update(completed=[], jobs={}, verified=False)
@@ -351,16 +355,24 @@ def main(argv=None):
     parser.add_argument("--capacity", help="Existing active Fabric capacity UUID")
     parser.add_argument("--name", help="New workspace display name")
     parser.add_argument("--skip-login", action="store_true", help="Use an existing Azure CLI session")
-    parser.add_argument("--with-app", action="store_true", help="Also deploy the experimental Fabric App")
+    app_options = parser.add_mutually_exclusive_group()
+    app_options.add_argument(
+        "--with-app", action="store_true", default=None, help="Also deploy the optional Fabric App",
+    )
+    app_options.add_argument(
+        "--without-app", dest="with_app", action="store_false",
+        help="Skip the optional Fabric App and its selection prompt",
+    )
     args = parser.parse_args(argv)
-    if args.with_app and args.command != "deploy":
-        parser.error("--with-app is only supported with deploy")
+    if args.with_app is not None and args.command != "deploy":
+        parser.error("--with-app and --without-app are only supported with deploy")
     if args.command == "plan":
         print("Northwind Microsoft Fabric Test Drive deployment plan")
         print("Create workspace -> schema-enabled lakehouse -> bronze and gold schemas")
         print(f"Copy {len(ENTITIES)} entities to bronze -> notebook builds five gold tables")
         print("Create semantic model -> large storage -> refresh with retries -> verify Sales and Orders")
         print("Create report bound to semantic model -> verify report binding")
+        print("Optional Fabric App: choose at first interactive deploy or pass deploy --with-app")
         print("No capacity provisioning. No writes in plan/preflight.")
         return 0
     try:
@@ -378,13 +390,22 @@ def main(argv=None):
             raise DeploymentError("Capacity differs from saved state; refusing to switch it.")
         if state and args.name and args.name != state["workspace_name"]:
             raise DeploymentError("Workspace name differs from saved state; refusing to switch it.")
+        with_app = (state or {}).get("app_requested", False) if args.with_app is None else args.with_app
+        if args.command == "deploy":
+            if state is None and args.with_app is None and sys.stdin.isatty():
+                answer = input("Include the optional Northwind Fabric App? [y/N]: ").strip().casefold()
+                if answer not in ("", "n", "no", "y", "yes"):
+                    raise DeploymentError("Enter yes or no for the optional app.")
+                with_app = answer in ("y", "yes")
+            if with_app and not (state or {}).get("app_id"):
+                check_prerequisites()
         if not args.skip_login:
             login(tenant)
         api = Fabric(tenant)
         if args.command == "cleanup":
             cleanup(api, state)
             return 0
-        if args.with_app and state and state.get("verified"):
+        if args.command == "deploy" and with_app and state and state.get("verified"):
             if state.get("pending_job") or state.get("pending_create"):
                 raise DeploymentError("Unresolved deployment operation; reconcile it before deploying the app.")
             if not state.get("semantic_model_id") or not state.get("report_id"):
@@ -392,6 +413,8 @@ def main(argv=None):
             owned_workspace(api, state)
             ensure_item(api, state, "semantic_model_id", "SemanticModel", "Northwind Model")
             ensure_item(api, state, "report_id", "Report", "Northwind Report")
+            state["app_requested"] = True
+            save(state)
             deploy_app(api, state, save)
             return 0
         capacities, types = preflight(api)
@@ -407,8 +430,8 @@ def main(argv=None):
             print("Fabric consumption can incur charges. Source tables are overwritten on reruns.")
             if input("Type deploy to continue: ").strip() != "deploy":
                 raise DeploymentError("Deployment cancelled; no resources were created.")
-        deploy(api, state, tenant, capacity, name, types)
-        if args.with_app:
+        deploy(api, state, tenant, capacity, name, types, with_app=with_app)
+        if with_app:
             deploy_app(api, load(), save)
         return 0
     except (DeploymentError, OSError, ValueError, KeyError) as exc:
