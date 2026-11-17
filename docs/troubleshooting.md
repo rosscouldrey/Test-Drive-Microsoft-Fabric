@@ -53,6 +53,40 @@ transactional full refresh with up to two service-side retries (five minutes per
 attempt), and polls completion. A target storage setting alone does not establish
 readiness. The overall refresh wait is bounded to 30 minutes per invocation.
 
+### Model refresh fails and the report is missing
+
+Initial model refresh failures have been observed during deployment, even when
+the lakehouse and gold tables were created successfully. **The report is not
+created until model refresh and query verification succeed.** A missing report
+at this point does not mean you need to start a new deployment.
+
+1. Open the **newly created deployment workspace** in Fabric.
+2. Find the **Northwind Model** semantic model, select its **...** menu, and choose
+   **Refresh now**. Wait for any existing refresh to finish before starting another.
+3. Check **Refresh history** and wait until the manual refresh shows **Completed**.
+   If it fails, inspect the error and resolve any source-access or permission
+   problem before proceeding.
+4. Return to the **same Codespace and deployment directory**, keeping
+   `.fabric-test-drive/state.json` intact, and rerun:
+
+   ```bash
+   .venv/bin/fabric-test-drive deploy --skip-login
+   ```
+
+The launcher resumes from saved state, reuses the existing workspace, lakehouse,
+model, and completed data stages, and proceeds to report creation after its model
+checks pass. It may submit another automated refresh if the saved refresh attempt
+failed; it does not automatically adopt a separate manual refresh as that attempt.
+Allow the command to finish and open the printed report link.
+
+**Do not run cleanup, delete state, or create a replacement workspace to recover
+from this refresh failure.** If the error instead mentions an unresolved
+submission (`pending_job`), follow
+[Unresolved create or job submission](#unresolved-create-or-job-submission)
+before retrying.
+
+### Other refresh, query, and rendering errors
+
 If it fails, inspect the model's refresh history for the actual error. Check that
 the model owner can read the gold tables and that the source connection targets
 the deployment's lakehouse. An initial table/access error may be transient, but
