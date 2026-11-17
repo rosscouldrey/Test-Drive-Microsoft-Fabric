@@ -2,7 +2,10 @@
   "name": "Fabric Test Drive",
   "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
   "features": {
-    "ghcr.io/devcontainers/features/azure-cli:1": {}
+    "ghcr.io/devcontainers/features/azure-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "24"
+    }
   },
   "postCreateCommand": "python -m venv .venv && .venv/bin/python -m pip install -e .",
   "customizations": {

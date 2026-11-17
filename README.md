@@ -2,7 +2,8 @@
 
 Deploy a ready-to-explore Northwind sales environment into your Microsoft Fabric
 tenant: sample data, bronze and gold lakehouse tables, a Direct Lake semantic
-model, and a Power BI report.
+model, and a Power BI report. Optionally add an interactive Northwind Fabric App
+connected to the same semantic model.
 
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/rosscouldrey/Test-Drive-Microsoft-Fabric?quickstart=1)
 
@@ -49,7 +50,8 @@ subscription is required by the launcher when using an already available capacit
    .venv/bin/fabric-test-drive deploy
    ```
 
-3. Enter your tenant UUID and complete the Microsoft device-code sign-in.
+3. Enter your tenant UUID and choose whether to include the optional Fabric App
+   (press Enter for **No**). Complete the Microsoft device-code sign-in.
    Only enter the displayed code at Microsoft's sign-in page for a session you
    initiated. The launcher never asks you to paste a password or access token.
 4. Choose the number of a supported active capacity, enter a **new workspace
@@ -108,6 +110,7 @@ Public Northwind OData service
 | `Verify Northwind` notebook | Builds gold tables and checks rows, keys, joins, and sales |
 | `Northwind Model` | Direct Lake model bound to this deployment's lakehouse |
 | `Northwind Report` | Authored report bound to this deployment's model |
+| `Northwind Fabric App` (optional) | Interactive app connected to this deployment's model |
 
 The gold tables are `fact_sales`, `dim_customer`, `dim_product`, `dim_employee`,
 and `dim_date`. The model includes sales, order, quantity, and time-intelligence
@@ -138,6 +141,61 @@ configuration failures require correction.
 A rerun after a successful deployment overwrites the demo's bronze and gold
 tables and refreshes the model. Recorded models and reports are reused, not
 overwritten with later template edits.
+
+### Optional: include the Fabric App
+
+On a new interactive deployment, the launcher asks at the start:
+
+```text
+Include the optional Northwind Fabric App? [y/N]:
+```
+
+Press Enter to deploy only the standard environment, or enter `y` to include
+the app. To select explicitly and skip this question:
+
+```bash
+.venv/bin/fabric-test-drive deploy --with-app
+# Or explicitly deploy without the app:
+.venv/bin/fabric-test-drive deploy --without-app
+```
+
+The app choice is saved with the deployment, so a failed model refresh does not
+lose your selection. Rerunning from the same directory resumes that choice;
+`--without-app` skips the optional step. Without an explicit option, a new
+deployment with redirected input does not ask and defaults to no app. Resource
+creation still requires the usual confirmations.
+
+The optional app requires Node.js 20, 22, or 24, npm, and permission to create
+Fabric apps. New Codespaces include Node 24. Existing Codespaces need Node
+installed separately or can be rebuilt after preserving their deployment state.
+App prerequisites are checked before deployment begins when selected.
+The launcher automatically reuses the same Azure CLI sign-in for app deployment:
+no separate browser callback, token-copy commands, or plaintext Rayfin token
+cache is needed.
+
+To add the app to an already completed Test Drive, run from its original directory:
+
+```bash
+.venv/bin/fabric-test-drive deploy --skip-login --with-app
+```
+
+This adds the app without rerunning ingestion or refreshing the model.
+If the recorded app already exists, it is checked and left unchanged.
+For a new deployment, the app is added only
+after the model and report are verified. The launcher installs the app's locked
+dependencies into `.fabric-test-drive/app`, rebinds its connector to the recorded
+model, runs local checks, and previews the target workspace before asking for
+confirmation. Do not copy deployment state or the staged app to another
+environment.
+
+After deployment, open the printed hosting URL and check sign-in, data, charts,
+and interactions. A successful deployment is not proof of those runtime checks.
+If the app deployment stops after remote submission, its outcome may be unknown:
+preserve the state and inspect the workspace and `.fabric-test-drive/app/rayfin/.deployments.json`
+before taking further action. The launcher will not blindly repeat it.
+An app failure does not remove the working data, model, or report. Cleanup
+deletes the app along with the recorded workspace. Automatic updates to an
+already deployed app are not yet supported.
 
 Each checkout directory tracks **one deployment**. To create another environment,
 use a separate clone or Codespace and a different workspace name. Do not delete

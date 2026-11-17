@@ -112,6 +112,32 @@ The report's dataset ID is checked automatically, but visual rendering is not.
 Open every page and test filters. A recorded report with an unexpected binding
 causes deployment to stop rather than silently overwrite your changes.
 
+## Optional Fabric App
+
+The launcher reuses Azure CLI authentication for the app. You should not need
+to run `rayfin login`, enable plaintext token storage, or copy a token into your
+terminal. If an older launcher opens a browser and then stalls at a localhost
+callback or reports that no OS keychain is available, stop it with Ctrl+C and
+update the checkout before retrying. Keep the saved deployment state.
+
+If the app prerequisite check reports missing or unsupported Node.js, use
+Node 24 and npm. New Codespaces include both; existing Codespaces need them
+installed or a container rebuild after preserving state. The standard deployment
+does not need Node: select No at the initial question or use `--without-app`.
+
+The app is deployed only after the model and report pass verification.
+If it fails before remote submission, correct the reported problem and rerun
+`deploy --skip-login --with-app`. If state contains `pending_app`, a remote
+operation may have succeeded or may still be running. Do not retry blindly or
+delete the marker: inspect the recorded workspace and the staged Rayfin registry
+at `.fabric-test-drive/app/rayfin/.deployments.json` and reconcile the outcome
+before further deployment. The working core environment is retained.
+
+An existing app with the same name but no matching recorded ID is not reused
+automatically. Inspect it instead of approving an overwrite. Once deployed,
+open the app's hosting URL and check authentication, data, charts, and filters;
+deployment success alone does not verify the browser experience.
+
 ## Unresolved create or job submission
 
 If a server accepted a request but its response was lost, retrying blindly could
