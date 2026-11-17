@@ -1,0 +1,7 @@
+EVALUATE
+  ROW(
+    "Total Sales", CONVERT([Total Sales], DOUBLE),
+    "Order Count", [Order Count],
+    "Customer Count", [Customer Count],
+    "Product Count", [Product Count]
+  )

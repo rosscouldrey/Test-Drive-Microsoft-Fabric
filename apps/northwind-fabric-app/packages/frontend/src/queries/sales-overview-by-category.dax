@@ -1,0 +1,14 @@
+DEFINE
+  VAR _CategoryFilter =
+    TREATAS({__CATEGORY_LITERAL__}, 'dim_product'[category_name])
+
+EVALUATE
+  CALCULATETABLE(
+    ROW(
+      "Total Sales", CONVERT([Total Sales], DOUBLE),
+      "Order Count", [Order Count],
+      "Customer Count", [Customer Count],
+      "Product Count", [Product Count]
+    ),
+    _CategoryFilter
+  )

@@ -1,0 +1,69 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "width": "container",
+  "height": "container",
+  "mark": {
+    "type": "line",
+    "point": {
+      "filled": true,
+      "size": 28
+    }
+  },
+  "encoding": {
+    "x": {
+      "field": "dim_dateyear_month",
+      "type": "ordinal",
+      "sort": {
+        "field": "dim_dateyear_month",
+        "order": "ascending"
+      },
+      "axis": {
+        "title": null,
+        "labelAngle": -45,
+        "labelOverlap": "greedy"
+      }
+    },
+    "y": {
+      "field": "Sales",
+      "type": "quantitative",
+      "axis": {
+        "title": "Sales",
+        "format": ",.0f"
+      }
+    },
+    "color": {
+      "field": "dim_productcategory_name",
+      "type": "nominal",
+      "scale": {
+        "scheme": "tableau10"
+      },
+      "legend": {
+        "title": "Product category",
+        "orient": "bottom"
+      }
+    },
+    "tooltip": [
+      {
+        "field": "dim_dateyear_month",
+        "type": "ordinal",
+        "title": "Month"
+      },
+      {
+        "field": "dim_productcategory_name",
+        "type": "nominal",
+        "title": "Product category"
+      },
+      {
+        "field": "Sales",
+        "type": "quantitative",
+        "format": ",.2f",
+        "title": "Sales"
+      },
+      {
+        "field": "Orders",
+        "type": "quantitative",
+        "title": "Orders"
+      }
+    ]
+  }
+}
