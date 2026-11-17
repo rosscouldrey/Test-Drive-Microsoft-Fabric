@@ -27,10 +27,18 @@ def command(args, *, capture=False):
 
 
 def json_command(args):
+    output = command(args, capture=True).lstrip()
+    # Rayfin 1.36.2 writes this authentication notice to stdout even in JSON mode.
+    notice = "[rayfin] using ambient token from RAYFIN_TOKEN"
+    while output.splitlines() and output.splitlines()[0] == notice:
+        output = output.partition("\n")[2].lstrip()
     try:
-        return json.loads(command(args, capture=True))
+        result = json.loads(output)
     except json.JSONDecodeError as exc:
         raise DeploymentError("Rayfin returned invalid JSON; inspect the deployment before retrying.") from exc
+    if not isinstance(result, dict):
+        raise DeploymentError("Rayfin returned an unexpected JSON shape; inspect the deployment before retrying.")
+    return result
 
 
 def prepare():

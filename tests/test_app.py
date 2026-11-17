@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest.mock import Mock, patch
 
@@ -43,6 +44,24 @@ class AppTests(unittest.TestCase):
             "id": ITEM, "type": "AppBackend", "displayName": app.APP_NAME,
         }
         self.save = Mock()
+
+    @patch("fabric_test_drive.app.command")
+    def test_json_accepts_only_known_leading_authentication_notice(self, command):
+        notice = "[rayfin] using ambient token from RAYFIN_TOKEN\n"
+        for prefix in ("", notice, notice * 2):
+            with self.subTest(prefix=prefix):
+                command.return_value = prefix + json.dumps(preview())
+                self.assertEqual(app.json_command(["rayfin", "up"]), preview())
+        for output in (
+            "unknown warning\n" + json.dumps(preview()),
+            notice + "{broken",
+            notice + json.dumps(preview()) + "\nextra output",
+            notice + "[]",
+        ):
+            with self.subTest(output=output):
+                command.return_value = output
+                with self.assertRaises(DeploymentError):
+                    app.json_command(["rayfin", "up"])
 
     @patch("fabric_test_drive.app.STAGING")
     @patch("fabric_test_drive.app.prepare")
