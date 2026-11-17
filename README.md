@@ -139,6 +139,35 @@ A rerun after a successful deployment overwrites the demo's bronze and gold
 tables and refreshes the model. Recorded models and reports are reused, not
 overwritten with later template edits.
 
+### Experimental: add the Fabric App
+
+The optional app requires Node.js 20, 22, or 24, npm, and permission to create
+Fabric apps. New Codespaces include Node 24. Existing Codespaces need Node
+installed separately or can be rebuilt after preserving their deployment state.
+Rayfin uses a separate interactive Microsoft sign-in.
+
+From the deployment's original directory, run:
+
+```bash
+.venv/bin/fabric-test-drive deploy --skip-login --with-app
+```
+
+For an already completed Test Drive, this adds the app without rerunning
+ingestion or refreshing the model. For a new deployment, the app is added only
+after the model and report are verified. The launcher installs the app's locked
+dependencies into `.fabric-test-drive/app`, rebinds its connector to the recorded
+model, runs local checks, and previews the target workspace before asking for
+confirmation. Do not copy deployment state or the staged app to another
+environment.
+
+After deployment, open the printed hosting URL and check sign-in, data, charts,
+and interactions. A successful deployment is not proof of those runtime checks.
+If the app deployment stops after remote submission, its outcome may be unknown:
+preserve the state and inspect the workspace and `.fabric-test-drive/app/rayfin/.deployments.json`
+before taking further action. The launcher will not blindly repeat it. Cleanup
+deletes the app along with the recorded workspace. Automatic app redeployment is
+not yet supported.
+
 Each checkout directory tracks **one deployment**. To create another environment,
 use a separate clone or Codespace and a different workspace name. Do not delete
 or edit state to switch environments.

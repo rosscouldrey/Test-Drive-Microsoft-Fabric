@@ -8,6 +8,7 @@ from uuid import UUID, uuid4
 import requests
 
 from .api import DeploymentError, Fabric, FabricApiError, PowerBI, login
+from .app import deploy_app
 from .artifacts import ENTITIES, SOURCE, notebook, pipeline, schema_notebook
 from .model import model_definition, refresh_status, verify_model
 from .report import report_definition, verify_report
@@ -350,7 +351,10 @@ def main(argv=None):
     parser.add_argument("--capacity", help="Existing active Fabric capacity UUID")
     parser.add_argument("--name", help="New workspace display name")
     parser.add_argument("--skip-login", action="store_true", help="Use an existing Azure CLI session")
+    parser.add_argument("--with-app", action="store_true", help="Also deploy the experimental Fabric App")
     args = parser.parse_args(argv)
+    if args.with_app and args.command != "deploy":
+        parser.error("--with-app is only supported with deploy")
     if args.command == "plan":
         print("Northwind Microsoft Fabric Test Drive deployment plan")
         print("Create workspace -> schema-enabled lakehouse -> bronze and gold schemas")
@@ -365,6 +369,8 @@ def main(argv=None):
             raise DeploymentError("No local deployment state. Nothing will be deleted.")
         if state and (state.get("workspace_deleted") or state.get("connection_deleted")) and args.command != "cleanup":
             raise DeploymentError("Cleanup is incomplete. Finish cleanup before deploying again.")
+        if args.command == "deploy" and state and state.get("pending_app"):
+            raise DeploymentError("The previous app deployment has an unresolved outcome; inspect it before retrying.")
         tenant = guid(args.tenant or (state or {}).get("tenant_id") or input("Tenant UUID: ").strip())
         if state and tenant != state["tenant_id"]:
             raise DeploymentError("Tenant differs from saved state. Use the original tenant.")
@@ -377,6 +383,16 @@ def main(argv=None):
         api = Fabric(tenant)
         if args.command == "cleanup":
             cleanup(api, state)
+            return 0
+        if args.with_app and state and state.get("verified"):
+            if state.get("pending_job") or state.get("pending_create"):
+                raise DeploymentError("Unresolved deployment operation; reconcile it before deploying the app.")
+            if not state.get("semantic_model_id") or not state.get("report_id"):
+                raise DeploymentError("Completed deployment state is missing the model or report ID.")
+            owned_workspace(api, state)
+            ensure_item(api, state, "semantic_model_id", "SemanticModel", "Northwind Model")
+            ensure_item(api, state, "report_id", "Report", "Northwind Report")
+            deploy_app(api, state, save)
             return 0
         capacities, types = preflight(api)
         capacity = guid(args.capacity or (state or {}).get("capacity_id") or choose(capacities))
@@ -392,6 +408,8 @@ def main(argv=None):
             if input("Type deploy to continue: ").strip() != "deploy":
                 raise DeploymentError("Deployment cancelled; no resources were created.")
         deploy(api, state, tenant, capacity, name, types)
+        if args.with_app:
+            deploy_app(api, load(), save)
         return 0
     except (DeploymentError, OSError, ValueError, KeyError) as exc:
         print(f"Error: {exc}", file=sys.stderr)

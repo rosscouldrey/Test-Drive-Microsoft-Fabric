@@ -15,7 +15,6 @@ services:
       - http://localhost:5173
       - http://localhost:5174
       - http://127.0.0.1:5174
-      - https://hot-otter-6ec7aa412b-westus3.webapp.fabricapps.net
   data:
     enabled: false
     path: packages/data
